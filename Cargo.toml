@@ -1,0 +1,16 @@
+[package]
+name = "openwith"
+version = "0.1.0"
+edition = "2021"
+description = "Manage macOS file extension associations"
+
+[[bin]]
+name = "openwith"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+ratatui = "0.29"
+tabled = "0.17"
