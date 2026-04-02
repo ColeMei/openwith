@@ -12,4 +12,3 @@ pub struct DefaultApp {
     pub name: String,
     pub bundle_id: String,
 }
-

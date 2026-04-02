@@ -121,7 +121,7 @@ impl App {
 
     fn picker_toggle_all(&mut self) {
         self.picker_show_all = !self.picker_show_all;
-        self.picker_apply_filter(&String::new());
+        self.picker_apply_filter("");
         self.picker_selected = 0;
     }
 
@@ -153,26 +153,21 @@ impl App {
         let ext = self.filtered_rows[self.selected].ext.clone();
         let app_name = self.picker_apps[self.picker_selected].clone();
 
-        let bundle_id = self
-            .apps
-            .iter()
-            .find(|a| a.name == app_name)
-            .and_then(|a| {
-                if a.bundle_id.is_empty() {
-                    None
-                } else {
-                    Some(a.bundle_id.clone())
-                }
-            });
-
-        let bundle_id = match bundle_id {
-            Some(id) => id,
-            None => {
-                self.status = format!("Could not find bundle ID for {}", app_name);
+        let resolved_app = match scanner::resolve_app(&self.apps, &app_name) {
+            Ok(app) if !app.bundle_id.is_empty() => app,
+            Ok(app) => {
+                self.status = format!("Could not determine bundle ID for {}", app.name);
+                self.view = View::ExtensionList { filtering: false };
+                return;
+            }
+            Err(err) => {
+                self.status = err.to_string();
                 self.view = View::ExtensionList { filtering: false };
                 return;
             }
         };
+
+        let bundle_id = resolved_app.bundle_id.clone();
 
         match uti::uti_for_extension(&ext) {
             Ok(uti_str) => match duti::set_default(&bundle_id, &uti_str) {
@@ -346,7 +341,7 @@ fn handle_picker_keys(app: &mut App, key: KeyCode, filter: &str, filtering: bool
         // Typing to filter the app list
         match key {
             KeyCode::Esc => {
-                app.picker_apply_filter(&String::new());
+                app.picker_apply_filter("");
                 app.view = View::AppPicker {
                     filter: String::new(),
                     filtering: false,
@@ -369,8 +364,7 @@ fn handle_picker_keys(app: &mut App, key: KeyCode, filter: &str, filtering: bool
             }
             KeyCode::Down => {
                 if !app.picker_apps.is_empty() {
-                    app.picker_selected =
-                        (app.picker_selected + 1).min(app.picker_apps.len() - 1);
+                    app.picker_selected = (app.picker_selected + 1).min(app.picker_apps.len() - 1);
                 }
             }
             KeyCode::Up => {
@@ -394,8 +388,7 @@ fn handle_picker_keys(app: &mut App, key: KeyCode, filter: &str, filtering: bool
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 if !app.picker_apps.is_empty() {
-                    app.picker_selected =
-                        (app.picker_selected + 1).min(app.picker_apps.len() - 1);
+                    app.picker_selected = (app.picker_selected + 1).min(app.picker_apps.len() - 1);
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
@@ -421,7 +414,7 @@ fn handle_picker_keys(app: &mut App, key: KeyCode, filter: &str, filtering: bool
 fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::vertical([
         Constraint::Length(3), // header + filter
-        Constraint::Min(5),   // table
+        Constraint::Min(5),    // table
         Constraint::Length(1), // footer
     ])
     .split(f.area());
@@ -430,7 +423,11 @@ fn draw(f: &mut Frame, app: &App) {
     draw_table(f, app, chunks[1]);
     draw_footer(f, app, chunks[2]);
 
-    if let View::AppPicker { ref filter, filtering } = app.view {
+    if let View::AppPicker {
+        ref filter,
+        filtering,
+    } = app.view
+    {
         draw_picker(f, app, filter, filtering);
     }
 }
@@ -450,10 +447,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         app.filter.clone()
     };
 
-    let title = format!(
-        " openwith  [{} extensions]",
-        app.filtered_rows.len()
-    );
+    let title = format!(" openwith  [{} extensions]", app.filtered_rows.len());
 
     let header = Block::default()
         .borders(Borders::ALL)
@@ -482,8 +476,11 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_table(f: &mut Frame, app: &App, area: Rect) {
-    let header = Row::new(vec!["  EXT", "DEFAULT APP", "BUNDLE ID"])
-        .style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan));
+    let header = Row::new(vec!["  EXT", "DEFAULT APP", "BUNDLE ID"]).style(
+        Style::default()
+            .add_modifier(Modifier::BOLD)
+            .fg(Color::Cyan),
+    );
 
     let rows: Vec<Row> = app
         .filtered_rows
@@ -644,11 +641,7 @@ fn draw_picker(f: &mut Frame, app: &App, filter: &str, filtering: bool) {
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            let marker = if i == app.picker_selected {
-                "> "
-            } else {
-                "  "
-            };
+            let marker = if i == app.picker_selected { "> " } else { "  " };
             let style = if i == app.picker_selected {
                 Style::default()
                     .fg(Color::White)

@@ -4,22 +4,37 @@ Manage macOS "Open With" file extension associations from the terminal.
 
 Scan your installed applications, see what opens each file type, and change defaults — all without touching Finder.
 
+`openwith` is macOS-only.
+
 ## Install
+
+```bash
+cargo install --git https://github.com/ColeMei/openwith --tag v0.1.1
+```
+
+[duti](https://github.com/moretension/duti) is required.
+
+Install it before running `openwith`:
+
+```bash
+brew install duti
+```
+
+For local development:
 
 ```bash
 cargo install --path .
 ```
 
-[duti](https://github.com/moretension/duti) is required and will be installed automatically via Homebrew on first run.
-
 ## Usage
 
-```
+```bash
 openwith                    Launch interactive TUI
 openwith list               List all extensions with current defaults
 openwith list -f py         Filter by extension or app name
 openwith current pdf        Show current default for .pdf
 openwith set pdf Preview    Set Preview as default for .pdf
+openwith set html "Google Chrome"
 ```
 
 ### Interactive TUI
@@ -39,7 +54,8 @@ Run `openwith` with no arguments to browse all file extensions, see their curren
 1. Scans `/Applications`, `/System/Applications`, and `~/Applications` for `.app` bundles
 2. Reads each app's `Info.plist` to discover supported file extensions
 3. Queries current defaults via `duti -x`
-4. Sets new defaults via `duti -s` using UTI (Uniform Type Identifier) mapping
+4. Resolves the file extension to a UTI (Uniform Type Identifier)
+5. Sets new defaults via `duti -s`
 
 ## License
 

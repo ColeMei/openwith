@@ -57,9 +57,7 @@ pub fn run(filter: Option<&str>) -> Result<()> {
     // Apply filter
     if let Some(f) = filter {
         let f = f.to_lowercase();
-        rows.retain(|r| {
-            r.ext.to_lowercase().contains(&f) || r.app.to_lowercase().contains(&f)
-        });
+        rows.retain(|r| r.ext.to_lowercase().contains(&f) || r.app.to_lowercase().contains(&f));
     }
 
     if rows.is_empty() {

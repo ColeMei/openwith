@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::path::Path;
 use std::process::Command;
 
@@ -89,4 +89,106 @@ pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
     }
 
     Ok(apps)
+}
+
+/// Resolve an app name using exact match first, then a unique fuzzy match.
+pub fn resolve_app<'a>(apps: &'a [AppInfo], app_name: &str) -> Result<&'a AppInfo> {
+    let search = app_name.trim();
+    if search.is_empty() {
+        bail!("app name cannot be empty");
+    }
+
+    let exact_matches: Vec<&AppInfo> = apps
+        .iter()
+        .filter(|app| app.name.eq_ignore_ascii_case(search))
+        .collect();
+
+    match exact_matches.len() {
+        1 => return Ok(exact_matches[0]),
+        n if n > 1 => bail!(ambiguous_app_message(search, &exact_matches)),
+        _ => {}
+    }
+
+    let search_lower = search.to_lowercase();
+    let fuzzy_matches: Vec<&AppInfo> = apps
+        .iter()
+        .filter(|app| app.name.to_lowercase().contains(&search_lower))
+        .collect();
+
+    match fuzzy_matches.len() {
+        1 => Ok(fuzzy_matches[0]),
+        0 => bail!("app '{}' not found", app_name),
+        _ => bail!(ambiguous_app_message(search, &fuzzy_matches)),
+    }
+}
+
+fn ambiguous_app_message(search: &str, matches: &[&AppInfo]) -> String {
+    let candidates = matches
+        .iter()
+        .map(|app| {
+            if app.bundle_id.is_empty() {
+                app.name.clone()
+            } else {
+                format!("{} ({})", app.name, app.bundle_id)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "app '{}' is ambiguous; matches: {}. Use a more specific app name.",
+        search, candidates
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_app;
+    use crate::core::types::AppInfo;
+
+    fn app(name: &str, bundle_id: &str) -> AppInfo {
+        AppInfo {
+            name: name.to_string(),
+            bundle_id: bundle_id.to_string(),
+            extensions: vec![],
+        }
+    }
+
+    #[test]
+    fn resolve_app_prefers_case_insensitive_exact_match() {
+        let apps = vec![
+            app("Google Chrome", "com.google.Chrome"),
+            app("Chrome Canary", "com.google.Chrome.canary"),
+        ];
+
+        let resolved = resolve_app(&apps, "google chrome").unwrap();
+
+        assert_eq!(resolved.bundle_id, "com.google.Chrome");
+    }
+
+    #[test]
+    fn resolve_app_accepts_unique_fuzzy_match() {
+        let apps = vec![
+            app("Preview", "com.apple.Preview"),
+            app("Skim", "net.sourceforge.skim-app.skim"),
+        ];
+
+        let resolved = resolve_app(&apps, "prev").unwrap();
+
+        assert_eq!(resolved.bundle_id, "com.apple.Preview");
+    }
+
+    #[test]
+    fn resolve_app_rejects_ambiguous_fuzzy_match() {
+        let apps = vec![
+            app("Visual Studio Code", "com.microsoft.VSCode"),
+            app("CodeRunner", "com.krill.CodeRunner"),
+        ];
+
+        let err = resolve_app(&apps, "code").unwrap_err().to_string();
+
+        assert!(err.contains("ambiguous"));
+        assert!(err.contains("Visual Studio Code"));
+        assert!(err.contains("CodeRunner"));
+    }
 }

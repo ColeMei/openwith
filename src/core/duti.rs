@@ -3,45 +3,18 @@ use std::process::Command;
 
 use super::types::DefaultApp;
 
-/// Ensure duti is available. If missing, try to install via Homebrew silently.
+/// Ensure duti is available.
 pub fn ensure_available() -> Result<()> {
     if Command::new("duti").arg("-h").output().is_ok() {
         return Ok(());
     }
 
-    // Try auto-install via Homebrew
-    eprintln!("duti not found, installing via Homebrew...");
-
-    let install = Command::new("brew")
-        .arg("install")
-        .arg("duti")
-        .output();
-
-    match install {
-        Ok(output) if output.status.success() => {
-            eprintln!("duti installed successfully.");
-            Ok(())
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("already installed") {
-                Ok(())
-            } else {
-                anyhow::bail!(
-                    "Failed to install duti via Homebrew.\n\
-                     Install manually: brew install duti\n\
-                     Error: {}",
-                    stderr.trim()
-                )
-            }
-        }
-        Err(_) => {
-            anyhow::bail!(
-                "duti is not installed and Homebrew is not available.\n\
-                 Install Homebrew first, then run: brew install duti"
-            )
-        }
-    }
+    anyhow::bail!(
+        "duti is required but was not found in PATH.\n\
+         Install it with:\n\
+           brew install duti\n\
+         Then rerun openwith."
+    )
 }
 
 /// Query the current default application for a file extension.

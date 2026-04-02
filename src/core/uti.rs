@@ -1,8 +1,20 @@
-use anyhow::Result;
-use std::process::Command;
+use anyhow::{bail, Result};
+use core_foundation::base::TCFType;
+use core_foundation::string::{CFString, CFStringRef};
+
+#[link(name = "CoreServices", kind = "framework")]
+extern "C" {
+    static kUTTagClassFilenameExtension: CFStringRef;
+
+    fn UTTypeCreatePreferredIdentifierForTag(
+        in_tag_class: CFStringRef,
+        in_tag: CFStringRef,
+        in_conforming_to_uti: CFStringRef,
+    ) -> CFStringRef;
+}
 
 /// Resolve the UTI for a file extension.
-/// Uses a hardcoded map for common types, falls back to mdls for unknown ones.
+/// Uses a hardcoded map for common types, then asks macOS for known extensions.
 pub fn uti_for_extension(ext: &str) -> Result<String> {
     let ext = ext.trim_start_matches('.').to_lowercase();
 
@@ -10,36 +22,29 @@ pub fn uti_for_extension(ext: &str) -> Result<String> {
         return Ok(uti.to_string());
     }
 
-    // Single mdls attempt for unknown extensions
-    mdls_uti(&ext)
+    system_uti(&ext)
 }
 
-fn mdls_uti(ext: &str) -> Result<String> {
-    let temp_file = std::env::temp_dir().join(format!("dutis_uti_probe.{}", ext));
-    std::fs::write(&temp_file, "probe")?;
+fn system_uti(ext: &str) -> Result<String> {
+    let extension = CFString::new(ext);
+    let uti_ref = unsafe {
+        UTTypeCreatePreferredIdentifierForTag(
+            kUTTagClassFilenameExtension,
+            extension.as_concrete_TypeRef(),
+            std::ptr::null(),
+        )
+    };
 
-    // Brief pause for Spotlight to index
-    std::thread::sleep(std::time::Duration::from_millis(500));
-
-    let output = Command::new("mdls")
-        .arg("-name")
-        .arg("kMDItemContentType")
-        .arg("-r")
-        .arg(&temp_file)
-        .output();
-
-    let _ = std::fs::remove_file(&temp_file);
-
-    match output {
-        Ok(o) if o.status.success() => {
-            let uti = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if !uti.is_empty() && uti != "(null)" {
-                return Ok(uti);
-            }
-            anyhow::bail!("could not determine UTI for .{}", ext);
-        }
-        _ => anyhow::bail!("mdls failed for .{}", ext),
+    if uti_ref.is_null() {
+        bail!("extension .{} is not recognized by macOS", ext);
     }
+
+    let uti = unsafe { CFString::wrap_under_create_rule(uti_ref) }.to_string();
+    if uti.is_empty() || uti.starts_with("dyn.") {
+        bail!("extension .{} is not recognized by macOS", ext);
+    }
+
+    Ok(uti)
 }
 
 fn hardcoded_uti(ext: &str) -> Option<&'static str> {
@@ -152,4 +157,23 @@ fn hardcoded_uti(ext: &str) -> Option<&'static str> {
         _ => return None,
     };
     Some(uti)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::uti_for_extension;
+
+    #[test]
+    fn returns_hardcoded_uti_for_common_types() {
+        assert_eq!(uti_for_extension("txt").unwrap(), "public.plain-text");
+    }
+
+    #[test]
+    fn rejects_unknown_extensions_instead_of_returning_dynamic_utis() {
+        let err = uti_for_extension("openwithtotallyunknownext")
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("not recognized by macOS"));
+    }
 }

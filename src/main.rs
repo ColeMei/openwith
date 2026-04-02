@@ -8,16 +8,6 @@ mod core;
 fn main() -> Result<()> {
     let args = cli::Cli::parse();
 
-    if args.help {
-        cli::print_help();
-        return Ok(());
-    }
-
-    if args.version {
-        cli::print_version();
-        return Ok(());
-    }
-
     // Ensure duti is available (auto-installs via brew if missing)
     core::duti::ensure_available()?;
 
