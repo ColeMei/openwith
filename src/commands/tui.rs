@@ -582,13 +582,13 @@ fn draw_picker(f: &mut Frame, app: &App, filter: &str, filtering: bool) {
     };
     let title = format!(" Set default for .{} ", ext);
     let help = Line::from(vec![
-        Span::styled(" Enter", Style::default().fg(Color::Cyan)),
+        Span::styled(" [Enter]", Style::default().fg(Color::Cyan)),
         Span::raw(" confirm  "),
-        Span::styled("Tab", Style::default().fg(Color::Cyan)),
+        Span::styled("[Tab]", Style::default().fg(Color::Cyan)),
         Span::raw(" all apps  "),
-        Span::styled("/", Style::default().fg(Color::Cyan)),
-        Span::raw(" search  "),
-        Span::styled("Esc", Style::default().fg(Color::Cyan)),
+        Span::styled("[/]", Style::default().fg(Color::Cyan)),
+        Span::raw(" filter  "),
+        Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
         Span::raw(" back "),
     ]);
 
@@ -605,12 +605,12 @@ fn draw_picker(f: &mut Frame, app: &App, filter: &str, filtering: bool) {
     // Mode/filter info line
     let filter_display = if filtering {
         if filter.is_empty() {
-            " Search: _".to_string()
+            " Filter: _".to_string()
         } else {
-            format!(" Search: {}_", filter)
+            format!(" Filter: {}_", filter)
         }
     } else if !filter.is_empty() {
-        format!(" Search: {}", filter)
+        format!(" Filter: {}", filter)
     } else {
         String::new()
     };
