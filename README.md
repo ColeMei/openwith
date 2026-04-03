@@ -1,10 +1,7 @@
 # OpenWith
 
-**Openwith** is a small Rust-based terminal tool that lets you list all file associations, see what app handles each extension, and change them in one place. No more repetitive clicks or guessing bundle IDs.
+**OpenWith** is a small Rust-based macOS terminal tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs.
 
-In daily development, we often want different apps for different file types: Markdown in Typora, Python in an IDE, and simple files like JSON or TXT in lightweight editors like Sublime or CotEditor.
-
-But macOS only lets you change "Open With" one file type at a time through Finder, with no global view or centralized control.
 
 ## Install
 
