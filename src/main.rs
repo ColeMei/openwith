@@ -1,16 +1,15 @@
 use anyhow::Result;
-use clap::Parser;
-
 mod cli;
 mod commands;
 mod core;
+mod logo;
 
 fn main() -> Result<()> {
-    let args = cli::Cli::parse();
+    let args = cli::Cli::parse_with_help();
 
     match args.command {
-        Some(cli::Commands::List { filter }) => {
-            commands::list::run(filter.as_deref())?;
+        Some(cli::Commands::List { .. }) => {
+            commands::tui::run(commands::tui::InitialView::Extensions)?;
         }
         Some(cli::Commands::Current { ext }) => {
             commands::current::run(&ext)?;
@@ -18,8 +17,8 @@ fn main() -> Result<()> {
         Some(cli::Commands::Set { ext, app }) => {
             commands::set::run(&ext, &app)?;
         }
-        Some(cli::Commands::Apps { filter }) => {
-            commands::apps::run(filter.as_deref())?;
+        Some(cli::Commands::Apps { .. }) => {
+            commands::tui::run(commands::tui::InitialView::Apps)?;
         }
         Some(cli::Commands::Export { output }) => {
             commands::export::run(output.as_deref())?;
@@ -28,7 +27,7 @@ fn main() -> Result<()> {
             commands::import::run(&path)?;
         }
         None => {
-            commands::tui::run()?;
+            commands::tui::run(commands::tui::InitialView::Extensions)?;
         }
     }
 

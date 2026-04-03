@@ -3,6 +3,14 @@
 **OpenWith** is a small Rust-based macOS terminal tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs.
 
 
+## Prerequisites
+
+OpenWith requires Rust. Install it via [rustup](https://rustup.rs):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 ## Install
 
 ```bash
@@ -16,17 +24,22 @@ cargo install --path .
 ## Quick Start
 
 ```bash
-openwith              # Launch interactive TUI
-openwith list         # List all extensions with current defaults
+openwith              # Launch interactive TUI (extensions view)
+openwith apps         # Launch interactive TUI (apps view)
 openwith current pdf  # Show default app for .pdf
 openwith set md Typora  # Set Typora as default for .md
 ```
 
-Run `openwith --help` to see all commands, including `apps`, `export`, and `import`.
+Run `openwith --help` to see all commands.
 
 ### Interactive TUI
 
-Run `openwith` with no arguments to browse all file extensions, see their current defaults, and change them interactively. Press `?` inside the TUI for keyboard shortcuts.
+Run `openwith` with no arguments to browse all file extensions, see their current defaults, and change them interactively. The TUI has two tabs you can switch between with `Tab`:
+
+- **Extensions** — browse all file extensions, see their current default app, and change defaults via an app picker
+- **Apps** — browse all installed apps in a master-detail view, see which extensions each app supports and which it's the default for
+
+Press `?` inside the TUI for keyboard shortcuts.
 
 ### Export & Import
 
