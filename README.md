@@ -24,9 +24,10 @@ cargo install --path .
 ## Quick Start
 
 ```bash
-openwith              # Launch interactive TUI (extensions view)
-openwith apps         # Launch interactive TUI (apps view)
-openwith current pdf  # Show default app for .pdf
+openwith                # Launch interactive TUI (extensions view)
+openwith list           # Same as above
+openwith apps           # Launch interactive TUI (apps view)
+openwith current pdf    # Show default app for .pdf
 openwith set md Typora  # Set Typora as default for .md
 ```
 
