@@ -48,3 +48,7 @@ Import skips associations where the app isn't found, so the same config works ac
 ## License
 
 MIT
+
+## Acknowledgement
+
+Special thanks to [linux.do](https://linux.do)
