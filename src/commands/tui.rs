@@ -1,21 +1,21 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    event::{self, Event, KeyCode, KeyEventKind},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Row, Table},
-    Frame, Terminal,
 };
 use std::io;
 use std::sync::Mutex;
 
 use crate::core::types::AppInfo;
-use crate::core::{duti, scanner, uti};
+use crate::core::{launchservices, scanner, uti};
 
 /// A row in the extension table.
 #[derive(Clone)]
@@ -31,6 +31,14 @@ enum View {
     ExtensionList { filtering: bool },
     /// App picker popup.
     AppPicker { filter: String, filtering: bool },
+    /// Help overlay.
+    Help,
+}
+
+/// Whether the last status was a success or an error.
+enum StatusKind {
+    Success,
+    Error,
 }
 
 struct App {
@@ -51,6 +59,7 @@ struct App {
     /// Whether picker is showing all apps or just supporting ones.
     picker_show_all: bool,
     status: String,
+    status_kind: StatusKind,
     should_quit: bool,
 }
 
@@ -73,6 +82,7 @@ impl App {
             picker_selected: 0,
             picker_show_all: false,
             status: String::new(),
+            status_kind: StatusKind::Success,
             should_quit: false,
         }
     }
@@ -157,11 +167,13 @@ impl App {
             Ok(app) if !app.bundle_id.is_empty() => app,
             Ok(app) => {
                 self.status = format!("Could not determine bundle ID for {}", app.name);
+                self.status_kind = StatusKind::Error;
                 self.view = View::ExtensionList { filtering: false };
                 return;
             }
             Err(err) => {
                 self.status = err.to_string();
+                self.status_kind = StatusKind::Error;
                 self.view = View::ExtensionList { filtering: false };
                 return;
             }
@@ -170,24 +182,36 @@ impl App {
         let bundle_id = resolved_app.bundle_id.clone();
 
         match uti::uti_for_extension(&ext) {
-            Ok(uti_str) => match duti::set_default(&bundle_id, &uti_str) {
+            Ok(uti_str) => match launchservices::set_default(&bundle_id, &uti_str) {
                 Ok(_) => {
-                    let new_default = duti::query_default(&ext).ok().flatten();
-                    if let Some(row) = self.all_rows.iter_mut().find(|r| r.ext == ext) {
-                        if let Some(ref d) = new_default {
-                            row.app_name = d.name.clone();
-                            row.bundle_id = d.bundle_id.clone();
-                        }
+                    let new_bid = launchservices::query_default_bundle_id(&ext).ok().flatten();
+                    let verified = new_bid
+                        .as_ref()
+                        .map(|b| b.eq_ignore_ascii_case(&bundle_id))
+                        .unwrap_or(false);
+                    if let Some(row) = self.all_rows.iter_mut().find(|r| r.ext == ext)
+                        && let Some(ref bid) = new_bid
+                    {
+                        row.app_name = scanner::resolve_name(&self.apps, bid);
+                        row.bundle_id = bid.clone();
                     }
                     self.apply_filter();
-                    self.status = format!("Set .{} -> {}", ext, app_name);
+                    if verified {
+                        self.status = format!("Set .{} -> {}", ext, app_name);
+                        self.status_kind = StatusKind::Success;
+                    } else {
+                        self.status = format!("Set .{} -> {} (could not verify)", ext, app_name);
+                        self.status_kind = StatusKind::Error;
+                    }
                 }
                 Err(e) => {
                     self.status = format!("Failed: {}", e);
+                    self.status_kind = StatusKind::Error;
                 }
             },
             Err(e) => {
                 self.status = format!("UTI error: {}", e);
+                self.status_kind = StatusKind::Error;
             }
         }
         self.view = View::ExtensionList { filtering: false };
@@ -221,18 +245,19 @@ pub fn run() -> Result<()> {
     std::thread::scope(|s| {
         for chunk in extensions.chunks(20) {
             let rows = &rows;
+            let apps = &apps;
             let chunk = chunk.to_vec();
             s.spawn(move || {
                 for ext in chunk {
-                    let default = duti::query_default(&ext).ok().flatten();
-                    let (app_name, bundle_id) = match &default {
-                        Some(d) => (d.name.clone(), d.bundle_id.clone()),
+                    let bundle_id = launchservices::query_default_bundle_id(&ext).ok().flatten();
+                    let (app_name, bid) = match &bundle_id {
+                        Some(bid) => (scanner::resolve_name(apps, bid), bid.clone()),
                         None => ("-".into(), "-".into()),
                     };
                     rows.lock().unwrap().push(ExtRow {
                         ext,
                         app_name,
-                        bundle_id,
+                        bundle_id: bid,
                     });
                 }
             });
@@ -282,6 +307,10 @@ fn run_loop(
                     let filtering = *filtering;
                     handle_picker_keys(app, key.code, &filter, filtering);
                 }
+                View::Help => {
+                    // Any key dismisses help
+                    app.view = View::ExtensionList { filtering: false };
+                }
             }
         }
     }
@@ -327,6 +356,9 @@ fn handle_list_keys(app: &mut App, key: KeyCode, filtering: bool) {
             }
             KeyCode::Char('/') => {
                 app.view = View::ExtensionList { filtering: true };
+            }
+            KeyCode::Char('?') => {
+                app.view = View::Help;
             }
             KeyCode::Enter => {
                 app.open_picker();
@@ -423,12 +455,14 @@ fn draw(f: &mut Frame, app: &App) {
     draw_table(f, app, chunks[1]);
     draw_footer(f, app, chunks[2]);
 
-    if let View::AppPicker {
-        ref filter,
-        filtering,
-    } = app.view
-    {
-        draw_picker(f, app, filter, filtering);
+    match &app.view {
+        View::AppPicker { filter, filtering } => {
+            draw_picker(f, app, filter, *filtering);
+        }
+        View::Help => {
+            draw_help(f);
+        }
+        _ => {}
     }
 }
 
@@ -530,9 +564,13 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" navigate"),
         ])
     } else if !app.status.is_empty() {
+        let color = match app.status_kind {
+            StatusKind::Success => Color::Green,
+            StatusKind::Error => Color::Red,
+        };
         Line::from(Span::styled(
             format!(" {}", app.status),
-            Style::default().fg(Color::Green),
+            Style::default().fg(color),
         ))
     } else {
         Line::from(vec![
@@ -540,6 +578,8 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" change  "),
             Span::styled("[/]", Style::default().fg(Color::Cyan)),
             Span::raw(" filter  "),
+            Span::styled("[?]", Style::default().fg(Color::Cyan)),
+            Span::raw(" help  "),
             Span::styled("[q]", Style::default().fg(Color::Cyan)),
             Span::raw(" quit"),
         ])
@@ -658,4 +698,61 @@ fn draw_picker(f: &mut Frame, app: &App, filter: &str, filtering: bool) {
     let mut state = ListState::default();
     state.select(Some(app.picker_selected));
     f.render_stateful_widget(list, chunks[1], &mut state);
+}
+
+fn draw_help(f: &mut Frame) {
+    let lines = vec![
+        Line::from(""),
+        help_line("j/k  Up/Down", "Navigate"),
+        help_line("g / G", "Top / bottom"),
+        help_line("/", "Filter"),
+        help_line("Enter", "Open app picker"),
+        help_line("?", "Toggle help"),
+        help_line("q", "Quit"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  App Picker",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        help_line("Tab", "Supporting / all apps"),
+        help_line("/", "Filter apps"),
+        help_line("Enter", "Confirm"),
+        help_line("Esc", "Close"),
+        Line::from(""),
+    ];
+
+    let height = lines.len() as u16 + 2; // +2 for borders
+    let width = 40u16;
+    let area = f.area();
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(x, y, width.min(area.width), height.min(area.height));
+
+    f.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Keyboard Shortcuts ")
+        .title_bottom(Line::from(Span::styled(
+            " Press any key to close ",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    f.render_widget(paragraph, popup_area);
+}
+
+fn help_line<'a>(key: &'a str, desc: &'a str) -> Line<'a> {
+    Line::from(vec![
+        Span::styled(
+            format!("  {:>14}", key),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!("  {}", desc)),
+    ])
 }

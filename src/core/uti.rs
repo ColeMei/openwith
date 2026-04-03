@@ -1,9 +1,9 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
 
 #[link(name = "CoreServices", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     static kUTTagClassFilenameExtension: CFStringRef;
 
     fn UTTypeCreatePreferredIdentifierForTag(

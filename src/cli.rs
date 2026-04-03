@@ -2,11 +2,13 @@ use clap::{Parser, Subcommand};
 
 const AFTER_HELP: &str = "\
 Examples:
-  openwith
-  openwith list -f py
-  openwith current pdf
-  openwith set pdf Preview
-  openwith set html \"Google Chrome\"";
+  openwith                          Launch interactive TUI
+  openwith list -f py               List extensions, filter by 'py'
+  openwith current pdf              Show default app for .pdf
+  openwith set pdf Preview          Set default for .pdf to Preview
+  openwith apps -f safari           List apps, filter by 'safari'
+  openwith export -o openwith.toml  Export associations to TOML
+  openwith import openwith.toml     Import associations from TOML";
 
 #[derive(Parser)]
 #[command(
@@ -39,5 +41,22 @@ pub enum Commands {
         ext: String,
         /// Application name (e.g., "Preview", "Visual Studio Code")
         app: String,
+    },
+    /// List apps and their supported file extensions
+    Apps {
+        /// Filter by app name
+        #[arg(short, long)]
+        filter: Option<String>,
+    },
+    /// Export current file associations to TOML
+    Export {
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Import file associations from a TOML config
+    Import {
+        /// Path to TOML config file
+        path: String,
     },
 }

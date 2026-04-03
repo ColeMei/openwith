@@ -1,61 +1,52 @@
-# openwith
+# OpenWith
 
-Manage macOS "Open With" file extension associations from the terminal.
+**Openwith** is a small Rust-based terminal tool that lets you list all file associations, see what app handles each extension, and change them in one place. No more repetitive clicks or guessing bundle IDs.
 
-Scan your installed applications, see what opens each file type, and change defaults — all without touching Finder.
+In daily development, we often want different apps for different file types: Markdown in Typora, Python in an IDE, and simple files like JSON or TXT in lightweight editors like Sublime or CotEditor.
 
-`openwith` is macOS-only.
+But macOS only lets you change "Open With" one file type at a time through Finder, with no global view or centralized control.
 
 ## Install
 
 ```bash
-cargo install --git https://github.com/ColeMei/openwith --tag v0.1.1
-```
+# From GitHub
+cargo install --git https://github.com/ColeMei/openwith
 
-[duti](https://github.com/moretension/duti) is required.
-
-Install it before running `openwith`:
-
-```bash
-brew install duti
-```
-
-For local development:
-
-```bash
+# Or clone and build locally
 cargo install --path .
 ```
 
-## Usage
+## Quick Start
 
 ```bash
-openwith                    Launch interactive TUI
-openwith list               List all extensions with current defaults
-openwith list -f py         Filter by extension or app name
-openwith current pdf        Show current default for .pdf
-openwith set pdf Preview    Set Preview as default for .pdf
-openwith set html "Google Chrome"
+openwith              # Launch interactive TUI
+openwith list         # List all extensions with current defaults
+openwith current pdf  # Show default app for .pdf
+openwith set md Typora  # Set Typora as default for .md
 ```
+
+Run `openwith --help` to see all commands, including `apps`, `export`, and `import`.
 
 ### Interactive TUI
 
-Run `openwith` with no arguments to browse all file extensions, see their current defaults, and change them interactively.
+Run `openwith` with no arguments to browse all file extensions, see their current defaults, and change them interactively. Press `?` inside the TUI for keyboard shortcuts.
 
-| Key | Action |
-|-----|--------|
-| `j` / `k` / arrows | Navigate |
-| `/` | Filter by extension or app name |
-| `Enter` | Change default app |
-| `Tab` | Toggle between supporting apps and all apps |
-| `q` | Quit |
+### Export & Import
 
-## How it works
+You can export your current associations to a TOML file and import them on another machine — making your "Open With" preferences portable, like a dotfile.
+
+```bash
+openwith export -o openwith.toml  # Export
+openwith import openwith.toml     # Import on a new machine
+```
+
+Import skips associations where the app isn't found, so the same config works across machines with different setups.
+
+## How It Works
 
 1. Scans `/Applications`, `/System/Applications`, and `~/Applications` for `.app` bundles
 2. Reads each app's `Info.plist` to discover supported file extensions
-3. Queries current defaults via `duti -x`
-4. Resolves the file extension to a UTI (Uniform Type Identifier)
-5. Sets new defaults via `duti -s`
+3. Queries and sets defaults via native macOS Launch Services APIs
 
 ## License
 

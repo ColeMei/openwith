@@ -1,12 +1,12 @@
 [package]
 name = "openwith"
-version = "0.1.1"
-edition = "2021"
+version = "0.2.0"
+edition = "2024"
 description = "Manage macOS file extension associations"
 license = "MIT"
 repository = "https://github.com/ColeMei/openwith"
 homepage = "https://github.com/ColeMei/openwith"
-keywords = ["macos", "cli", "file-associations", "duti"]
+keywords = ["macos", "cli", "file-associations", "launch-services"]
 categories = ["command-line-utilities", "os::macos-apis"]
 
 [[bin]]
@@ -19,4 +19,6 @@ clap = { version = "4", features = ["derive"] }
 core-foundation = "0.10"
 crossterm = "0.28"
 ratatui = "0.29"
+serde = { version = "1.0", features = ["derive"] }
 tabled = "0.17"
+toml = "0.8"

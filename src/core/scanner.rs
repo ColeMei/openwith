@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::path::Path;
 use std::process::Command;
 
@@ -31,10 +31,10 @@ pub fn scan_app_paths() -> Result<Vec<String>> {
         if let Ok(entries) = std::fs::read_dir(&user_apps) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension() == Some(std::ffi::OsStr::new("app")) {
-                    if let Some(path_str) = path.to_str() {
-                        app_paths.push(path_str.to_string());
-                    }
+                if path.extension() == Some(std::ffi::OsStr::new("app"))
+                    && let Some(path_str) = path.to_str()
+                {
+                    app_paths.push(path_str.to_string());
                 }
             }
         }
@@ -59,11 +59,7 @@ fn read_bundle_id_from_plist(plist_path: &str) -> Option<String> {
     }
 
     let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.is_empty() {
-        None
-    } else {
-        Some(id)
-    }
+    if id.is_empty() { None } else { Some(id) }
 }
 
 /// Scan all apps and build AppInfo structs with extensions and bundle IDs.
@@ -120,6 +116,14 @@ pub fn resolve_app<'a>(apps: &'a [AppInfo], app_name: &str) -> Result<&'a AppInf
         0 => bail!("app '{}' not found", app_name),
         _ => bail!(ambiguous_app_message(search, &fuzzy_matches)),
     }
+}
+
+/// Resolve a bundle ID to an app name. Falls back to the raw bundle ID.
+pub fn resolve_name(apps: &[AppInfo], bundle_id: &str) -> String {
+    apps.iter()
+        .find(|a| a.bundle_id.eq_ignore_ascii_case(bundle_id))
+        .map(|a| a.name.clone())
+        .unwrap_or_else(|| bundle_id.to_string())
 }
 
 fn ambiguous_app_message(search: &str, matches: &[&AppInfo]) -> String {

@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::core::{duti, scanner, uti};
+use crate::core::{launchservices, scanner, uti};
 
 pub fn run(ext: &str, app_name: &str) -> Result<()> {
     let ext = ext.trim_start_matches('.');
@@ -18,11 +18,11 @@ pub fn run(ext: &str, app_name: &str) -> Result<()> {
     let uti = uti::uti_for_extension(ext)?;
 
     // Set default
-    duti::set_default(&app.bundle_id, &uti)?;
+    launchservices::set_default(&app.bundle_id, &uti)?;
 
     // Verify
-    match duti::query_default(ext)? {
-        Some(d) if d.bundle_id == app.bundle_id => {
+    match launchservices::query_default_bundle_id(ext)? {
+        Some(bid) if bid.eq_ignore_ascii_case(&app.bundle_id) => {
             println!("Set .{} -> {}", ext, app.name);
         }
         _ => {

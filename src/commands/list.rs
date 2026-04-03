@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::sync::Mutex;
 use tabled::{Table, Tabled};
 
-use crate::core::{duti, scanner};
+use crate::core::{launchservices, scanner};
 
 #[derive(Tabled)]
 struct Row {
@@ -33,18 +33,19 @@ pub fn run(filter: Option<&str>) -> Result<()> {
         let chunk_size = 20;
         for chunk in extensions.chunks(chunk_size) {
             let rows = &rows;
+            let apps = &apps;
             let chunk = chunk.to_vec();
             s.spawn(move || {
                 for ext in chunk {
-                    let default = duti::query_default(&ext).ok().flatten();
-                    let (app_name, bundle_id) = match &default {
-                        Some(d) => (d.name.clone(), d.bundle_id.clone()),
+                    let bundle_id = launchservices::query_default_bundle_id(&ext).ok().flatten();
+                    let (app_name, bid) = match &bundle_id {
+                        Some(bid) => (scanner::resolve_name(apps, bid), bid.clone()),
                         None => ("-".to_string(), "-".to_string()),
                     };
                     rows.lock().unwrap().push(Row {
                         ext,
                         app: app_name,
-                        bundle_id,
+                        bundle_id: bid,
                     });
                 }
             });
