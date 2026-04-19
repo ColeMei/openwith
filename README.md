@@ -1,4 +1,4 @@
-<table>
+<table align="center">
   <tr>
     <td width="160" align="center">
       <img src="artifacts/openwith-logo.png" alt="OpenWith logo" width="140">
