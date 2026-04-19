@@ -1,8 +1,20 @@
-<p align="center">
-  <img src="artifacts/openwith-logo.png" alt="OpenWith logo" width="180">
-</p>
-
-# OpenWith
+<table>
+  <tr>
+    <td width="160" align="center">
+      <img src="artifacts/openwith-logo.png" alt="OpenWith logo" width="140">
+    </td>
+    <td>
+      <h1>OpenWith</h1>
+      <p>Manage macOS "Open With" defaults from the terminal.</p>
+      <p>
+        <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="Platform: macOS">
+        <img src="https://img.shields.io/badge/built_with-Rust-orange?logo=rust" alt="Built with Rust">
+        <img src="https://img.shields.io/github/v/release/ColeMei/openwith?sort=semver" alt="Latest release">
+        <img src="https://img.shields.io/github/license/ColeMei/openwith" alt="License: MIT">
+      </p>
+    </td>
+  </tr>
+</table>
 
 **OpenWith** is a small Rust-based macOS terminal tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs.
 
