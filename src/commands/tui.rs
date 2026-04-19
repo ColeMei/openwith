@@ -192,7 +192,7 @@ impl App {
                 }
             })
             .collect();
-        entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        entries.sort_by_key(|a| a.name.to_lowercase());
         entries
     }
 
@@ -702,10 +702,8 @@ fn handle_picker_keys(app: &mut App, key: KeyCode, filter: &str, filtering: bool
                     filtering: true,
                 };
             }
-            KeyCode::Down => {
-                if !app.picker_apps.is_empty() {
-                    app.picker_selected = (app.picker_selected + 1).min(app.picker_apps.len() - 1);
-                }
+            KeyCode::Down if !app.picker_apps.is_empty() => {
+                app.picker_selected = (app.picker_selected + 1).min(app.picker_apps.len() - 1);
             }
             KeyCode::Up => {
                 app.picker_selected = app.picker_selected.saturating_sub(1);
@@ -726,10 +724,8 @@ fn handle_picker_keys(app: &mut App, key: KeyCode, filter: &str, filtering: bool
             KeyCode::Esc | KeyCode::Char('q') => {
                 app.view = View::ExtensionList { filtering: false };
             }
-            KeyCode::Char('j') | KeyCode::Down => {
-                if !app.picker_apps.is_empty() {
-                    app.picker_selected = (app.picker_selected + 1).min(app.picker_apps.len() - 1);
-                }
+            KeyCode::Char('j') | KeyCode::Down if !app.picker_apps.is_empty() => {
+                app.picker_selected = (app.picker_selected + 1).min(app.picker_apps.len() - 1);
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 app.picker_selected = app.picker_selected.saturating_sub(1);
