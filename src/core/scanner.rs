@@ -2,47 +2,61 @@ use anyhow::{Result, bail};
 use std::path::Path;
 use std::process::Command;
 
-use super::plist;
 use super::types::AppInfo;
+use super::{plist, uti};
 
 /// Scan the system for installed applications, returning their paths.
 pub fn scan_app_paths() -> Result<Vec<String>> {
     let mut app_paths = Vec::new();
 
-    let output = Command::new("mdfind")
+    if let Ok(output) = Command::new("mdfind")
         .arg("kMDItemContentType == 'com.apple.application-bundle'")
         .arg("-onlyin")
         .arg("/System/Applications")
         .arg("-onlyin")
         .arg("/Applications")
-        .output()?;
-
-    let content = String::from_utf8_lossy(&output.stdout);
-    for line in content.lines() {
-        let line = line.trim();
-        if !line.is_empty() && line.ends_with(".app") {
-            app_paths.push(line.to_string());
+        .output()
+    {
+        let content = String::from_utf8_lossy(&output.stdout);
+        for line in content.lines() {
+            let line = line.trim();
+            if !line.is_empty() && line.ends_with(".app") {
+                app_paths.push(line.to_string());
+            }
         }
     }
 
-    // Add user ~/Applications
+    collect_app_paths_from_dir(Path::new("/System/Applications"), 3, &mut app_paths);
+    collect_app_paths_from_dir(Path::new("/Applications"), 3, &mut app_paths);
+
     if let Ok(home) = std::env::var("HOME") {
         let user_apps = format!("{}/Applications", home);
-        if let Ok(entries) = std::fs::read_dir(&user_apps) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension() == Some(std::ffi::OsStr::new("app"))
-                    && let Some(path_str) = path.to_str()
-                {
-                    app_paths.push(path_str.to_string());
-                }
-            }
-        }
+        collect_app_paths_from_dir(Path::new(&user_apps), 3, &mut app_paths);
     }
 
     app_paths.sort();
     app_paths.dedup();
     Ok(app_paths)
+}
+
+fn collect_app_paths_from_dir(dir: &Path, max_depth: usize, app_paths: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension() == Some(std::ffi::OsStr::new("app")) {
+            if let Some(path_str) = path.to_str() {
+                app_paths.push(path_str.to_string());
+            }
+            continue;
+        }
+
+        if max_depth > 0 && path.is_dir() {
+            collect_app_paths_from_dir(&path, max_depth - 1, app_paths);
+        }
+    }
 }
 
 /// Read CFBundleIdentifier from an app's Info.plist via PlistBuddy.
@@ -74,17 +88,33 @@ pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
         };
 
         let info_plist = format!("{}/Contents/Info.plist", app_path);
-        let extensions = plist::parse_extensions(&info_plist).unwrap_or_default();
+        let document_types = plist::parse_document_types(&info_plist).unwrap_or_default();
         let bundle_id = read_bundle_id_from_plist(&info_plist).unwrap_or_default();
 
         apps.push(AppInfo {
             name,
             bundle_id,
-            extensions,
+            extensions: document_types.extensions,
+            content_types: document_types.content_types,
         });
     }
 
     Ok(apps)
+}
+
+pub fn app_supports_extension(app: &AppInfo, ext: &str) -> bool {
+    let ext = ext.trim_start_matches('.');
+    if app.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)) {
+        return true;
+    }
+
+    let Ok(ext_uti) = uti::uti_for_extension(ext) else {
+        return false;
+    };
+
+    app.content_types
+        .iter()
+        .any(|content_type| uti::conforms_to(content_type, &ext_uti))
 }
 
 /// Resolve an app name using exact match first, then a unique fuzzy match.
@@ -147,14 +177,17 @@ fn ambiguous_app_message(search: &str, matches: &[&AppInfo]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_app;
+    use super::{collect_app_paths_from_dir, resolve_app};
     use crate::core::types::AppInfo;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn app(name: &str, bundle_id: &str) -> AppInfo {
         AppInfo {
             name: name.to_string(),
             bundle_id: bundle_id.to_string(),
             extensions: vec![],
+            content_types: vec![],
         }
     }
 
@@ -194,5 +227,42 @@ mod tests {
         assert!(err.contains("ambiguous"));
         assert!(err.contains("Visual Studio Code"));
         assert!(err.contains("CodeRunner"));
+    }
+
+    #[test]
+    fn filesystem_scan_finds_nested_app_bundles() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("openwith-scan-test-{unique}"));
+        let nested_app = root.join("Utilities").join("Preview.app");
+        fs::create_dir_all(&nested_app).unwrap();
+
+        let mut paths = Vec::new();
+        collect_app_paths_from_dir(&root, 3, &mut paths);
+
+        assert_eq!(paths, vec![nested_app.to_string_lossy().to_string()]);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn app_supports_extension_uses_declared_content_type_direction() {
+        let broad_text_app = AppInfo {
+            name: "Broad Text App".to_string(),
+            bundle_id: "example.broad-text".to_string(),
+            extensions: vec![],
+            content_types: vec!["public.text".to_string()],
+        };
+        let markdown_app = AppInfo {
+            name: "Markdown App".to_string(),
+            bundle_id: "example.markdown".to_string(),
+            extensions: vec![],
+            content_types: vec!["net.daringfireball.markdown".to_string()],
+        };
+
+        assert!(!super::app_supports_extension(&broad_text_app, "md"));
+        assert!(super::app_supports_extension(&markdown_app, "md"));
     }
 }

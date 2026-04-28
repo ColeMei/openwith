@@ -4,4 +4,5 @@ pub struct AppInfo {
     pub name: String,
     pub bundle_id: String,
     pub extensions: Vec<String>,
+    pub content_types: Vec<String>,
 }

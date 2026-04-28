@@ -11,6 +11,8 @@ unsafe extern "C" {
         in_tag: CFStringRef,
         in_conforming_to_uti: CFStringRef,
     ) -> CFStringRef;
+
+    fn UTTypeConformsTo(in_uti: CFStringRef, in_conforms_to_uti: CFStringRef) -> bool;
 }
 
 /// Resolve the UTI for a file extension.
@@ -23,6 +25,16 @@ pub fn uti_for_extension(ext: &str) -> Result<String> {
     }
 
     system_uti(&ext)
+}
+
+pub fn conforms_to(uti: &str, parent_uti: &str) -> bool {
+    if uti.eq_ignore_ascii_case(parent_uti) {
+        return true;
+    }
+
+    let uti = CFString::new(uti);
+    let parent_uti = CFString::new(parent_uti);
+    unsafe { UTTypeConformsTo(uti.as_concrete_TypeRef(), parent_uti.as_concrete_TypeRef()) }
 }
 
 fn system_uti(ext: &str) -> Result<String> {

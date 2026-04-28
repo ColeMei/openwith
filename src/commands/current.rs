@@ -20,7 +20,7 @@ pub fn run(ext: &str) -> Result<()> {
     }
     let supporting: Vec<&str> = apps
         .iter()
-        .filter(|app| app.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)))
+        .filter(|app| scanner::app_supports_extension(app, ext))
         .map(|app| app.name.as_str())
         .collect();
 
