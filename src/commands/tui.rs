@@ -169,9 +169,14 @@ impl App {
     fn build_apps_entries(apps: &[AppInfo], rows: &[ExtRow]) -> Vec<AppBrowserEntry> {
         let mut entries: Vec<AppBrowserEntry> = apps
             .iter()
-            .filter(|a| !a.extensions.is_empty() && !a.bundle_id.is_empty())
+            .filter(|a| !a.bundle_id.is_empty())
             .map(|a| {
                 let mut supported = a.extensions.clone();
+                supported.extend(
+                    rows.iter()
+                        .filter(|row| scanner::app_supports_extension(a, &row.ext))
+                        .map(|row| row.ext.clone()),
+                );
                 supported.sort();
                 supported.dedup();
                 let default_for: Vec<String> = supported
@@ -191,6 +196,7 @@ impl App {
                     default_for,
                 }
             })
+            .filter(|a| !a.supported.is_empty())
             .collect();
         entries.sort_by_key(|a| a.name.to_lowercase());
         entries
@@ -225,7 +231,7 @@ impl App {
         let mut supporting: Vec<String> = self
             .apps
             .iter()
-            .filter(|a| a.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)))
+            .filter(|a| scanner::app_supports_extension(a, ext))
             .map(|a| a.name.clone())
             .collect();
         supporting.sort();
