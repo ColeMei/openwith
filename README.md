@@ -24,21 +24,24 @@
 **OpenWith** is a small Rust-based macOS terminal tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs.
 
 
-## Prerequisites
-
-OpenWith requires Rust. Install it via [rustup](https://rustup.rs):
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
 ## Install
 
-```bash
-# From GitHub
-cargo install --git https://github.com/ColeMei/openwith
+Homebrew is the recommended install path:
 
-# Or clone and build locally
+```bash
+brew tap ColeMei/openwith
+brew install openwith
+```
+
+If you prefer installing from source with Cargo, install Rust via [rustup](https://rustup.rs), then run:
+
+```bash
+cargo install --git https://github.com/ColeMei/openwith
+```
+
+For local development builds from this repository:
+
+```bash
 cargo install --path .
 ```
 
