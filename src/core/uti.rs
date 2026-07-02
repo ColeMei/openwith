@@ -16,15 +16,21 @@ unsafe extern "C" {
 }
 
 /// Resolve the UTI for a file extension.
-/// Uses a hardcoded map for common types, then asks macOS for known extensions.
+///
+/// Asks Launch Services first: apps can register their own UTIs, and the
+/// system mapping is what Finder actually consults, so writing a handler to
+/// any other UTI would silently have no effect. The hardcoded map is only a
+/// fallback for extensions the system maps to a dynamic (`dyn.*`) type.
 pub fn uti_for_extension(ext: &str) -> Result<String> {
     let ext = ext.trim_start_matches('.').to_lowercase();
 
-    if let Some(uti) = hardcoded_uti(&ext) {
-        return Ok(uti.to_string());
+    match system_uti(&ext) {
+        Ok(uti) => Ok(uti),
+        Err(err) => match hardcoded_uti(&ext) {
+            Some(uti) => Ok(uti.to_string()),
+            None => Err(err),
+        },
     }
-
-    system_uti(&ext)
 }
 
 pub fn conforms_to(uti: &str, parent_uti: &str) -> bool {
@@ -141,7 +147,8 @@ fn hardcoded_uti(ext: &str) -> Option<&'static str> {
         "wma" => "com.microsoft.windows-media-wma",
 
         // Video
-        "mp4" | "m4v" => "public.mpeg-4",
+        "mp4" => "public.mpeg-4",
+        "m4v" => "com.apple.m4v-video",
         "mov" => "com.apple.quicktime-movie",
         "avi" => "public.avi",
         "mkv" => "org.matroska.mkv",
@@ -176,8 +183,9 @@ mod tests {
     use super::uti_for_extension;
 
     #[test]
-    fn returns_hardcoded_uti_for_common_types() {
+    fn resolves_common_types() {
         assert_eq!(uti_for_extension("txt").unwrap(), "public.plain-text");
+        assert_eq!(uti_for_extension(".PDF").unwrap(), "com.adobe.pdf");
     }
 
     #[test]
