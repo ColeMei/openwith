@@ -1,6 +1,6 @@
 [package]
 name = "openwith"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2024"
 description = "Manage macOS file extension associations"
 license = "MIT"
@@ -16,8 +16,12 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.2"
 core-foundation = "0.10"
 crossterm = "0.28"
+plist = "1"
 ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8"

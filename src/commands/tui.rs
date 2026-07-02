@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::core::types::AppInfo;
-use crate::core::{launchservices, scanner, uti};
+use crate::core::{launchservices, listing, scanner, uti};
 use crate::logo::LOGO;
 
 /// Which view to show when the TUI starts.
@@ -307,21 +307,64 @@ impl App {
                         .map(|b| b.eq_ignore_ascii_case(&bundle_id))
                         .unwrap_or(false);
 
-                    // Update the extension row
-                    if let Some(row) = self.all_rows.iter_mut().find(|r| r.ext == ext)
-                        && let Some(ref bid) = new_bid
-                    {
-                        let old_bid = row.bundle_id.clone();
-                        row.app_name = scanner::resolve_name(&self.apps, bid);
-                        row.bundle_id = bid.clone();
+                    // The default follows the UTI, so every extension sharing
+                    // it changed too — update their rows as well.
+                    let siblings = uti::extensions_sharing_uti(
+                        &ext,
+                        &uti_str,
+                        &scanner::all_extensions(&self.apps),
+                    );
 
-                        // Update apps browser entries
-                        self.update_apps_browser_default(&ext, &old_bid, bid);
+                    let previous_name = self
+                        .all_rows
+                        .iter()
+                        .find(|r| r.ext == ext)
+                        .map(|r| r.app_name.clone())
+                        .filter(|n| n != "-" && !n.eq_ignore_ascii_case(&app_name));
+
+                    if let Some(ref bid) = new_bid {
+                        let mut affected = vec![ext.clone()];
+                        affected.extend(siblings.iter().cloned());
+                        for affected_ext in &affected {
+                            let Some(row_idx) = self
+                                .all_rows
+                                .iter()
+                                .position(|r| r.ext.eq_ignore_ascii_case(affected_ext))
+                            else {
+                                continue;
+                            };
+                            let old_bid = self.all_rows[row_idx].bundle_id.clone();
+                            self.all_rows[row_idx].app_name =
+                                scanner::resolve_name(&self.apps, bid);
+                            self.all_rows[row_idx].bundle_id = bid.clone();
+
+                            // Update apps browser entries
+                            self.update_apps_browser_default(affected_ext, &old_bid, bid);
+                        }
                     }
                     self.apply_filter();
 
                     if verified {
-                        self.status = format!("Set .{} -> {}", ext, app_name);
+                        let mut status = format!("Set .{} -> {}", ext, app_name);
+                        if let Some(prev) = previous_name {
+                            status.push_str(&format!(" (was {prev})"));
+                        }
+                        if !siblings.is_empty() {
+                            let shown: Vec<String> =
+                                siblings.iter().take(3).map(|s| format!(".{s}")).collect();
+                            let extra = siblings.len().saturating_sub(3);
+                            let more = if extra > 0 {
+                                format!(" +{extra}")
+                            } else {
+                                String::new()
+                            };
+                            status.push_str(&format!(
+                                " (also affects {}{})",
+                                shown.join(", "),
+                                more
+                            ));
+                        }
+                        self.status = status;
                         self.status_kind = StatusKind::Success;
                         self.changes.push((ext, app_name));
                     } else {
@@ -413,6 +456,39 @@ impl App {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Restores the terminal on drop, so every exit path (including `?` early
+/// returns) leaves the user's shell usable.
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> Result<Self> {
+        enable_raw_mode()?;
+        io::stdout().execute(EnterAlternateScreen)?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+    }
+}
+
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = io::stdout().execute(LeaveAlternateScreen);
+}
+
+/// Restore the terminal before the default panic output runs, so the panic
+/// message is readable instead of vanishing with the alternate screen.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        default_hook(info);
+    }));
+}
+
 pub fn run(initial_view: InitialView) -> Result<()> {
     let initial_tab = match initial_view {
         InitialView::Extensions => Tab::Extensions,
@@ -420,8 +496,8 @@ pub fn run(initial_view: InitialView) -> Result<()> {
     };
 
     // Enter TUI immediately, scan in background
-    enable_raw_mode()?;
-    io::stdout().execute(EnterAlternateScreen)?;
+    install_panic_hook();
+    let guard = TerminalGuard::enter()?;
     let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
@@ -490,15 +566,13 @@ pub fn run(initial_view: InitialView) -> Result<()> {
     }
 
     if quit_during_load {
-        disable_raw_mode()?;
-        io::stdout().execute(LeaveAlternateScreen)?;
+        drop(guard);
         println!("Goodbye! \u{2014} openwith v{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
     let Some(data) = load_result else {
-        disable_raw_mode()?;
-        io::stdout().execute(LeaveAlternateScreen)?;
+        drop(guard);
         anyhow::bail!("Failed to load application data");
     };
 
@@ -506,8 +580,7 @@ pub fn run(initial_view: InitialView) -> Result<()> {
 
     let result = run_loop(&mut terminal, &mut app);
 
-    disable_raw_mode()?;
-    io::stdout().execute(LeaveAlternateScreen)?;
+    drop(guard);
 
     // Exit summary
     if !app.changes.is_empty() {
@@ -535,43 +608,19 @@ fn load_data(phase: Arc<Mutex<LoadPhase>>, progress: Arc<AtomicUsize>) -> Result
         }
     };
 
-    let mut extensions: Vec<String> = apps
-        .iter()
-        .flat_map(|app| app.extensions.iter().map(|e| e.to_lowercase()))
-        .collect();
-    extensions.sort();
-    extensions.dedup();
-
-    let total = extensions.len();
+    let total = scanner::all_extensions(&apps).len();
     *phase.lock().unwrap() = LoadPhase::Querying { total };
 
-    let rows: Mutex<Vec<ExtRow>> = Mutex::new(Vec::new());
-    std::thread::scope(|s| {
-        for chunk in extensions.chunks(20) {
-            let rows = &rows;
-            let apps = &apps;
-            let progress = &progress;
-            let chunk = chunk.to_vec();
-            s.spawn(move || {
-                for ext in chunk {
-                    let bundle_id = launchservices::query_default_bundle_id(&ext).ok().flatten();
-                    let (app_name, bid) = match &bundle_id {
-                        Some(bid) => (scanner::resolve_name(apps, bid), bid.clone()),
-                        None => ("-".into(), "-".into()),
-                    };
-                    rows.lock().unwrap().push(ExtRow {
-                        ext,
-                        app_name,
-                        bundle_id: bid,
-                    });
-                    progress.fetch_add(1, Ordering::Relaxed);
-                }
-            });
-        }
-    });
-
-    let mut rows = rows.into_inner().unwrap();
-    rows.sort_by(|a, b| a.ext.cmp(&b.ext));
+    let rows: Vec<ExtRow> = listing::query_all(&apps, &|| {
+        progress.fetch_add(1, Ordering::Relaxed);
+    })
+    .into_iter()
+    .map(|assoc| ExtRow {
+        ext: assoc.ext,
+        app_name: assoc.app_name.unwrap_or_else(|| "-".into()),
+        bundle_id: assoc.bundle_id.unwrap_or_else(|| "-".into()),
+    })
+    .collect();
 
     *phase.lock().unwrap() = LoadPhase::Done(Some(LoadResult { apps, rows }));
     Ok(())

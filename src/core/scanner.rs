@@ -59,23 +59,6 @@ fn collect_app_paths_from_dir(dir: &Path, max_depth: usize, app_paths: &mut Vec<
     }
 }
 
-/// Read CFBundleIdentifier from an app's Info.plist via PlistBuddy.
-fn read_bundle_id_from_plist(plist_path: &str) -> Option<String> {
-    let output = Command::new("/usr/libexec/PlistBuddy")
-        .arg("-c")
-        .arg("Print :CFBundleIdentifier")
-        .arg(plist_path)
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.is_empty() { None } else { Some(id) }
-}
-
 /// Scan all apps and build AppInfo structs with extensions and bundle IDs.
 pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
     let paths = scan_app_paths()?;
@@ -87,19 +70,30 @@ pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
             None => continue,
         };
 
-        let info_plist = format!("{}/Contents/Info.plist", app_path);
-        let document_types = plist::parse_document_types(&info_plist).unwrap_or_default();
-        let bundle_id = read_bundle_id_from_plist(&info_plist).unwrap_or_default();
+        let info_plist = Path::new(app_path).join("Contents/Info.plist");
+        let info = plist::parse_bundle_info(&info_plist).unwrap_or_default();
 
         apps.push(AppInfo {
             name,
-            bundle_id,
-            extensions: document_types.extensions,
-            content_types: document_types.content_types,
+            bundle_id: info.bundle_id.unwrap_or_default(),
+            extensions: info.extensions,
+            content_types: info.content_types,
+            url_schemes: info.url_schemes,
         });
     }
 
     Ok(apps)
+}
+
+/// All extensions declared by the scanned apps, lowercased and deduplicated.
+pub fn all_extensions(apps: &[AppInfo]) -> Vec<String> {
+    let mut extensions: Vec<String> = apps
+        .iter()
+        .flat_map(|app| app.extensions.iter().map(|e| e.to_lowercase()))
+        .collect();
+    extensions.sort();
+    extensions.dedup();
+    extensions
 }
 
 pub fn app_supports_extension(app: &AppInfo, ext: &str) -> bool {
@@ -148,6 +142,31 @@ pub fn resolve_app<'a>(apps: &'a [AppInfo], app_name: &str) -> Result<&'a AppInf
     }
 }
 
+/// Resolve a user-supplied value — an app name or a bundle ID — to a
+/// `(bundle_id, display_name)` pair.
+///
+/// Exact bundle ID matches win (e.g. "com.apple.Preview"); anything else is
+/// resolved as an app name via `resolve_app`.
+pub fn resolve_app_or_bundle_id(apps: &[AppInfo], value: &str) -> Result<(String, String)> {
+    let search = value.trim();
+    if search.is_empty() {
+        bail!("app name cannot be empty");
+    }
+
+    if let Some(app) = apps
+        .iter()
+        .find(|a| !a.bundle_id.is_empty() && a.bundle_id.eq_ignore_ascii_case(search))
+    {
+        return Ok((app.bundle_id.clone(), app.name.clone()));
+    }
+
+    match resolve_app(apps, search) {
+        Ok(app) if !app.bundle_id.is_empty() => Ok((app.bundle_id.clone(), app.name.clone())),
+        Ok(app) => bail!("could not determine bundle ID for '{}'", app.name),
+        Err(err) => Err(err),
+    }
+}
+
 /// Resolve a bundle ID to an app name. Falls back to the raw bundle ID.
 pub fn resolve_name(apps: &[AppInfo], bundle_id: &str) -> String {
     apps.iter()
@@ -177,7 +196,7 @@ fn ambiguous_app_message(search: &str, matches: &[&AppInfo]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_app_paths_from_dir, resolve_app};
+    use super::{collect_app_paths_from_dir, resolve_app, resolve_app_or_bundle_id};
     use crate::core::types::AppInfo;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -188,6 +207,7 @@ mod tests {
             bundle_id: bundle_id.to_string(),
             extensions: vec![],
             content_types: vec![],
+            url_schemes: vec![],
         }
     }
 
@@ -213,6 +233,37 @@ mod tests {
         let resolved = resolve_app(&apps, "prev").unwrap();
 
         assert_eq!(resolved.bundle_id, "com.apple.Preview");
+    }
+
+    #[test]
+    fn resolve_app_or_bundle_id_accepts_exact_bundle_id() {
+        let apps = vec![
+            app("Preview", "com.apple.Preview"),
+            app("Skim", "net.sourceforge.skim-app.skim"),
+        ];
+
+        let (bundle_id, name) = resolve_app_or_bundle_id(&apps, "com.apple.preview").unwrap();
+
+        assert_eq!(bundle_id, "com.apple.Preview");
+        assert_eq!(name, "Preview");
+    }
+
+    #[test]
+    fn resolve_app_or_bundle_id_accepts_app_name() {
+        let apps = vec![app("Preview", "com.apple.Preview")];
+
+        let (bundle_id, name) = resolve_app_or_bundle_id(&apps, "prev").unwrap();
+
+        assert_eq!(bundle_id, "com.apple.Preview");
+        assert_eq!(name, "Preview");
+    }
+
+    #[test]
+    fn resolve_app_or_bundle_id_rejects_unknown_values() {
+        let apps = vec![app("Preview", "com.apple.Preview")];
+
+        assert!(resolve_app_or_bundle_id(&apps, "com.example.NotInstalled").is_err());
+        assert!(resolve_app_or_bundle_id(&apps, "  ").is_err());
     }
 
     #[test]
@@ -254,12 +305,14 @@ mod tests {
             bundle_id: "example.broad-text".to_string(),
             extensions: vec![],
             content_types: vec!["public.text".to_string()],
+            url_schemes: vec![],
         };
         let markdown_app = AppInfo {
             name: "Markdown App".to_string(),
             bundle_id: "example.markdown".to_string(),
             extensions: vec![],
             content_types: vec!["net.daringfireball.markdown".to_string()],
+            url_schemes: vec![],
         };
 
         assert!(!super::app_supports_extension(&broad_text_app, "md"));

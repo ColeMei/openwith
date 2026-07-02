@@ -26,6 +26,13 @@ unsafe extern "C" {
         role: u32,
         handler_bundle_id: CFStringRef,
     ) -> OSStatus;
+
+    fn LSCopyDefaultHandlerForURLScheme(scheme: CFStringRef) -> CFStringRef;
+
+    fn LSSetDefaultHandlerForURLScheme(
+        scheme: CFStringRef,
+        handler_bundle_id: CFStringRef,
+    ) -> OSStatus;
 }
 
 /// Query the system for any UTI matching this extension, including dynamic UTIs.
@@ -88,6 +95,49 @@ fn query_default_for_uti(uti_str: &str) -> Result<Option<String>> {
     } else {
         Ok(Some(bundle_id))
     }
+}
+
+/// Query the default handler bundle ID for a URL scheme (e.g. "http").
+/// Returns `None` if no default is set.
+pub fn query_default_scheme_handler(scheme: &str) -> Result<Option<String>> {
+    let scheme_cf = CFString::new(scheme);
+    let result = unsafe { LSCopyDefaultHandlerForURLScheme(scheme_cf.as_concrete_TypeRef()) };
+
+    if result.is_null() {
+        return Ok(None);
+    }
+
+    let bundle_id = unsafe { CFString::wrap_under_create_rule(result) }.to_string();
+    if bundle_id.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(bundle_id))
+    }
+}
+
+/// Set the default handler for a URL scheme.
+pub fn set_default_scheme_handler(bundle_id: &str, scheme: &str) -> Result<()> {
+    let scheme_cf = CFString::new(scheme);
+    let bundle_cf = CFString::new(bundle_id);
+
+    let status = unsafe {
+        LSSetDefaultHandlerForURLScheme(
+            scheme_cf.as_concrete_TypeRef(),
+            bundle_cf.as_concrete_TypeRef(),
+        )
+    };
+
+    if status != 0 {
+        bail!(
+            "failed to set handler for {}:// (OSStatus {}). \
+             The bundle ID '{}' may be invalid or the app may not declare the scheme.",
+            scheme,
+            status,
+            bundle_id
+        );
+    }
+
+    Ok(())
 }
 
 /// Set the default application for a UTI.
