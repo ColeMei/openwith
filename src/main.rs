@@ -26,6 +26,15 @@ fn main() -> Result<()> {
         Some(cli::Commands::Import { path, dry_run }) => {
             commands::import::run(&path, dry_run)?;
         }
+        Some(cli::Commands::Completions { shell }) => {
+            use clap::CommandFactory;
+            let mut cmd = cli::Cli::command();
+            clap_complete::generate(shell, &mut cmd, "openwith", &mut std::io::stdout());
+        }
+        Some(cli::Commands::Mangen) => {
+            use clap::CommandFactory;
+            clap_mangen::Man::new(cli::Cli::command()).render(&mut std::io::stdout())?;
+        }
         None => {
             commands::list::run(false, false)?;
         }

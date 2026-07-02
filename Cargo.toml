@@ -16,6 +16,8 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.2"
 core-foundation = "0.10"
 crossterm = "0.28"
 plist = "1"

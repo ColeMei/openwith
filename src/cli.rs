@@ -25,6 +25,7 @@ MANAGE
 CONFIG
     openwith export         Export current associations to TOML
     openwith import <path>  Import associations (--dry-run to preview)
+    openwith completions <shell>    Generate shell completions
 
 FLAGS
     -h, --help              Show help
@@ -112,4 +113,13 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+    /// Generate a man page (roff) on stdout
+    #[command(hide = true)]
+    Mangen,
 }
