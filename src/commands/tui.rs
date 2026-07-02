@@ -446,6 +446,39 @@ impl App {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Restores the terminal on drop, so every exit path (including `?` early
+/// returns) leaves the user's shell usable.
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> Result<Self> {
+        enable_raw_mode()?;
+        io::stdout().execute(EnterAlternateScreen)?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+    }
+}
+
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = io::stdout().execute(LeaveAlternateScreen);
+}
+
+/// Restore the terminal before the default panic output runs, so the panic
+/// message is readable instead of vanishing with the alternate screen.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        default_hook(info);
+    }));
+}
+
 pub fn run(initial_view: InitialView) -> Result<()> {
     let initial_tab = match initial_view {
         InitialView::Extensions => Tab::Extensions,
@@ -453,8 +486,8 @@ pub fn run(initial_view: InitialView) -> Result<()> {
     };
 
     // Enter TUI immediately, scan in background
-    enable_raw_mode()?;
-    io::stdout().execute(EnterAlternateScreen)?;
+    install_panic_hook();
+    let guard = TerminalGuard::enter()?;
     let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
@@ -523,15 +556,13 @@ pub fn run(initial_view: InitialView) -> Result<()> {
     }
 
     if quit_during_load {
-        disable_raw_mode()?;
-        io::stdout().execute(LeaveAlternateScreen)?;
+        drop(guard);
         println!("Goodbye! \u{2014} openwith v{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
     let Some(data) = load_result else {
-        disable_raw_mode()?;
-        io::stdout().execute(LeaveAlternateScreen)?;
+        drop(guard);
         anyhow::bail!("Failed to load application data");
     };
 
@@ -539,8 +570,7 @@ pub fn run(initial_view: InitialView) -> Result<()> {
 
     let result = run_loop(&mut terminal, &mut app);
 
-    disable_raw_mode()?;
-    io::stdout().execute(LeaveAlternateScreen)?;
+    drop(guard);
 
     // Exit summary
     if !app.changes.is_empty() {
