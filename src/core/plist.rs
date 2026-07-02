@@ -9,6 +9,7 @@ pub struct BundleInfo {
     pub bundle_id: Option<String>,
     pub extensions: Vec<String>,
     pub content_types: Vec<String>,
+    pub url_schemes: Vec<String>,
 }
 
 /// Parse an application's Info.plist (XML or binary).
@@ -45,10 +46,20 @@ fn bundle_info_from_value(value: &Value) -> BundleInfo {
         }
     }
 
+    let mut url_schemes = BTreeSet::new();
+    if let Some(url_types) = dict.get("CFBundleURLTypes").and_then(Value::as_array) {
+        for url_type in url_types.iter().filter_map(Value::as_dictionary) {
+            for scheme in string_array(url_type.get("CFBundleURLSchemes")) {
+                insert_normalized(&mut url_schemes, &scheme, false);
+            }
+        }
+    }
+
     BundleInfo {
         bundle_id,
         extensions: extensions.into_iter().collect(),
         content_types: content_types.into_iter().collect(),
+        url_schemes: url_schemes.into_iter().collect(),
     }
 }
 
@@ -146,6 +157,7 @@ mod tests {
         assert_eq!(info.bundle_id.as_deref(), Some("com.example.Editor"));
         assert_eq!(info.extensions, vec!["markdown", "md"]);
         assert_eq!(info.content_types, vec!["public.json", "public.plain-text"]);
+        assert_eq!(info.url_schemes, vec!["editor", "editor-beta"]);
     }
 
     #[test]

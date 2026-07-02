@@ -5,4 +5,5 @@ pub struct AppInfo {
     pub bundle_id: String,
     pub extensions: Vec<String>,
     pub content_types: Vec<String>,
+    pub url_schemes: Vec<String>,
 }

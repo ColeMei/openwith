@@ -8,6 +8,9 @@ use super::{launchservices, listing, scanner, uti};
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub associations: BTreeMap<String, String>,
+    /// URL scheme handlers (e.g. "http" -> "org.mozilla.firefox").
+    #[serde(default)]
+    pub schemes: BTreeMap<String, String>,
 }
 
 pub struct ImportResult {
@@ -36,7 +39,56 @@ pub fn export_associations(apps: &[AppInfo]) -> Result<(Config, BTreeMap<String,
         associations.insert(key, bundle_id);
     }
 
-    Ok((Config { associations }, display_names))
+    let schemes = export_schemes(apps, &mut display_names);
+
+    Ok((
+        Config {
+            associations,
+            schemes,
+        },
+        display_names,
+    ))
+}
+
+/// Export URL scheme handlers. Only schemes where a real choice exists are
+/// included: those declared by more than one installed app, plus the always
+/// contested web/mail schemes. Exporting every vanity scheme (slack://,
+/// spotify://, ...) would just be noise — the declaring app is the only
+/// possible handler.
+fn export_schemes(
+    apps: &[AppInfo],
+    display_names: &mut BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for app in apps {
+        for scheme in &app.url_schemes {
+            *counts.entry(scheme.to_lowercase()).or_default() += 1;
+        }
+    }
+
+    let mut candidates: std::collections::BTreeSet<String> = counts
+        .into_iter()
+        .filter(|(_, count)| *count >= 2)
+        .map(|(scheme, _)| scheme)
+        .collect();
+    for common in ["http", "https", "mailto"] {
+        candidates.insert(common.to_string());
+    }
+
+    let mut schemes = BTreeMap::new();
+    for scheme in candidates {
+        if let Some(bundle_id) = launchservices::query_default_scheme_handler(&scheme)
+            .ok()
+            .flatten()
+        {
+            let name = scanner::resolve_name(apps, &bundle_id);
+            if name != bundle_id {
+                display_names.insert(scheme.clone(), name);
+            }
+            schemes.insert(scheme, bundle_id);
+        }
+    }
+    schemes
 }
 
 /// Import associations from a Config, applying each one.
@@ -95,6 +147,46 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
         }
     }
 
+    for (scheme_key, value) in &config.schemes {
+        let scheme = scheme_key.trim().to_lowercase();
+        let display_key = format!("{}://", scheme);
+
+        let (bundle_id, display_name) = match scanner::resolve_app_or_bundle_id(apps, value) {
+            Ok(pair) => pair,
+            Err(reason) => {
+                skipped.push((display_key, value.clone(), reason.to_string()));
+                continue;
+            }
+        };
+
+        let current = launchservices::query_default_scheme_handler(&scheme)
+            .ok()
+            .flatten();
+        if current
+            .as_deref()
+            .is_some_and(|c| c.eq_ignore_ascii_case(&bundle_id))
+        {
+            unchanged.push((display_key, display_name));
+            continue;
+        }
+
+        let previous = current.map(|c| scanner::resolve_name(apps, &c));
+
+        if dry_run {
+            applied.push((display_key, display_name, previous));
+            continue;
+        }
+
+        match launchservices::set_default_scheme_handler(&bundle_id, &scheme) {
+            Ok(_) => {
+                applied.push((display_key, display_name, previous));
+            }
+            Err(e) => {
+                skipped.push((display_key, display_name, e.to_string()));
+            }
+        }
+    }
+
     ImportResult {
         applied,
         unchanged,
@@ -113,11 +205,14 @@ pub fn to_toml(config: &Config, display_names: &BTreeMap<String, String>) -> Res
     ];
 
     for (ext, bundle_id) in &config.associations {
-        let escaped_key = format!("\"{}\"", ext);
-        let escaped_val = format!("\"{}\"", bundle_id);
-        match display_names.get(ext) {
-            Some(name) => lines.push(format!("{} = {}  # {}", escaped_key, escaped_val, name)),
-            None => lines.push(format!("{} = {}", escaped_key, escaped_val)),
+        lines.push(toml_line(ext, bundle_id, display_names.get(ext)));
+    }
+
+    if !config.schemes.is_empty() {
+        lines.push(String::new());
+        lines.push("[schemes]".to_string());
+        for (scheme, bundle_id) in &config.schemes {
+            lines.push(toml_line(scheme, bundle_id, display_names.get(scheme)));
         }
     }
 
@@ -125,7 +220,63 @@ pub fn to_toml(config: &Config, display_names: &BTreeMap<String, String>) -> Res
     Ok(lines.join("\n"))
 }
 
+fn toml_line(key: &str, value: &str, display_name: Option<&String>) -> String {
+    let escaped_key = format!("\"{}\"", key);
+    let escaped_val = format!("\"{}\"", value);
+    match display_name {
+        Some(name) => format!("{} = {}  # {}", escaped_key, escaped_val, name),
+        None => format!("{} = {}", escaped_key, escaped_val),
+    }
+}
+
 /// Deserialize a Config from a TOML string.
 pub fn from_toml(content: &str) -> Result<Config> {
     toml::from_str(content).context("failed to parse TOML config")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{from_toml, to_toml};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn toml_round_trip_preserves_associations_and_schemes() {
+        let input = r#"
+[associations]
+".md" = "abnerworks.Typora"
+
+[schemes]
+"http" = "org.mozilla.firefox"
+"#;
+
+        let config = from_toml(input).unwrap();
+        assert_eq!(
+            config.associations.get(".md").map(String::as_str),
+            Some("abnerworks.Typora")
+        );
+        assert_eq!(
+            config.schemes.get("http").map(String::as_str),
+            Some("org.mozilla.firefox")
+        );
+
+        let mut display_names = BTreeMap::new();
+        display_names.insert(".md".to_string(), "Typora".to_string());
+        display_names.insert("http".to_string(), "Firefox".to_string());
+
+        let out = to_toml(&config, &display_names).unwrap();
+        assert!(out.contains("[associations]"));
+        assert!(out.contains("\".md\" = \"abnerworks.Typora\"  # Typora"));
+        assert!(out.contains("[schemes]"));
+        assert!(out.contains("\"http\" = \"org.mozilla.firefox\"  # Firefox"));
+
+        let reparsed = from_toml(&out).unwrap();
+        assert_eq!(reparsed.associations, config.associations);
+        assert_eq!(reparsed.schemes, config.schemes);
+    }
+
+    #[test]
+    fn missing_schemes_table_defaults_to_empty() {
+        let config = from_toml("[associations]\n\".pdf\" = \"com.apple.Preview\"\n").unwrap();
+        assert!(config.schemes.is_empty());
+    }
 }

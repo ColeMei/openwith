@@ -8,7 +8,8 @@ pub fn run(path: &str, dry_run: bool) -> Result<()> {
         std::fs::read_to_string(path).with_context(|| format!("failed to read '{}'", path))?;
     let cfg = config::from_toml(&content)?;
 
-    if cfg.associations.is_empty() {
+    let total = cfg.associations.len() + cfg.schemes.len();
+    if total == 0 {
         println!("No associations found in '{}'.", path);
         return Ok(());
     }
@@ -17,12 +18,9 @@ pub fn run(path: &str, dry_run: bool) -> Result<()> {
     let apps = scanner::scan_all_apps()?;
 
     if dry_run {
-        eprintln!(
-            "Previewing {} associations (dry run)...",
-            cfg.associations.len()
-        );
+        eprintln!("Previewing {} associations (dry run)...", total);
     } else {
-        eprintln!("Applying {} associations...", cfg.associations.len());
+        eprintln!("Applying {} associations...", total);
     }
     let result = config::import_associations(&cfg, &apps, dry_run);
 
@@ -41,6 +39,11 @@ pub fn run(path: &str, dry_run: bool) -> Result<()> {
             .map(|p| format!(" (was: {p})"))
             .unwrap_or_default();
         println!("  {} -> {}{}", ext, app, was);
+
+        // Scheme entries (http://) have no UTI siblings.
+        if !ext.starts_with('.') {
+            continue;
+        }
 
         if let Ok(uti_str) = uti::uti_for_extension(ext) {
             let siblings: Vec<String> = uti::extensions_sharing_uti(ext, &uti_str, &all_extensions)

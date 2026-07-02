@@ -14,8 +14,9 @@ pub fn run(output: Option<&str>) -> Result<()> {
         Some(path) => {
             std::fs::write(path, &toml_str)?;
             println!(
-                "Exported {} associations to {}",
+                "Exported {} associations and {} scheme handlers to {}",
                 cfg.associations.len(),
+                cfg.schemes.len(),
                 path
             );
         }

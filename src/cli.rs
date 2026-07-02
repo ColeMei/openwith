@@ -19,6 +19,8 @@ BROWSE
 MANAGE
     openwith current <ext>      Show the default app (--json for scripts)
     openwith set <ext> <app>    Set the default app (name or bundle ID)
+    openwith current -s http    Show the handler for a URL scheme
+    openwith set -s http <app>  Set the handler for a URL scheme
 
 CONFIG
     openwith export         Export current associations to TOML
@@ -73,20 +75,26 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Show the current default app for a specific extension
+    /// Show the current default app for an extension or URL scheme
     Current {
-        /// File extension (without dot)
+        /// File extension (without dot), or URL scheme with --scheme
         ext: String,
         /// Print JSON
         #[arg(long)]
         json: bool,
+        /// Treat the argument as a URL scheme (e.g. http, mailto)
+        #[arg(short = 's', long)]
+        scheme: bool,
     },
-    /// Set the default app for a file extension
+    /// Set the default app for a file extension or URL scheme
     Set {
-        /// File extension (without dot)
+        /// File extension (without dot), or URL scheme with --scheme
         ext: String,
         /// Application name or bundle ID (e.g., "Preview", "com.apple.Preview")
         app: String,
+        /// Treat the argument as a URL scheme (e.g. http, mailto)
+        #[arg(short = 's', long)]
+        scheme: bool,
     },
     /// Launch interactive TUI (apps view)
     Apps,

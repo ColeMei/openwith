@@ -11,11 +11,11 @@ fn main() -> Result<()> {
         Some(cli::Commands::List { plain, json }) => {
             commands::list::run(plain, json)?;
         }
-        Some(cli::Commands::Current { ext, json }) => {
-            commands::current::run(&ext, json)?;
+        Some(cli::Commands::Current { ext, json, scheme }) => {
+            commands::current::run(&ext, json, scheme)?;
         }
-        Some(cli::Commands::Set { ext, app }) => {
-            commands::set::run(&ext, &app)?;
+        Some(cli::Commands::Set { ext, app, scheme }) => {
+            commands::set::run(&ext, &app, scheme)?;
         }
         Some(cli::Commands::Apps) => {
             commands::tui::run(commands::tui::InitialView::Apps)?;

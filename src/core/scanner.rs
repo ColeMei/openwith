@@ -78,6 +78,7 @@ pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
             bundle_id: info.bundle_id.unwrap_or_default(),
             extensions: info.extensions,
             content_types: info.content_types,
+            url_schemes: info.url_schemes,
         });
     }
 
@@ -206,6 +207,7 @@ mod tests {
             bundle_id: bundle_id.to_string(),
             extensions: vec![],
             content_types: vec![],
+            url_schemes: vec![],
         }
     }
 
@@ -303,12 +305,14 @@ mod tests {
             bundle_id: "example.broad-text".to_string(),
             extensions: vec![],
             content_types: vec!["public.text".to_string()],
+            url_schemes: vec![],
         };
         let markdown_app = AppInfo {
             name: "Markdown App".to_string(),
             bundle_id: "example.markdown".to_string(),
             extensions: vec![],
             content_types: vec!["net.daringfireball.markdown".to_string()],
+            url_schemes: vec![],
         };
 
         assert!(!super::app_supports_extension(&broad_text_app, "md"));
