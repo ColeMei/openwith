@@ -84,6 +84,17 @@ pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
     Ok(apps)
 }
 
+/// All extensions declared by the scanned apps, lowercased and deduplicated.
+pub fn all_extensions(apps: &[AppInfo]) -> Vec<String> {
+    let mut extensions: Vec<String> = apps
+        .iter()
+        .flat_map(|app| app.extensions.iter().map(|e| e.to_lowercase()))
+        .collect();
+    extensions.sort();
+    extensions.dedup();
+    extensions
+}
+
 pub fn app_supports_extension(app: &AppInfo, ext: &str) -> bool {
     let ext = ext.trim_start_matches('.');
     if app.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)) {

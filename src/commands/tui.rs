@@ -307,21 +307,54 @@ impl App {
                         .map(|b| b.eq_ignore_ascii_case(&bundle_id))
                         .unwrap_or(false);
 
-                    // Update the extension row
-                    if let Some(row) = self.all_rows.iter_mut().find(|r| r.ext == ext)
-                        && let Some(ref bid) = new_bid
-                    {
-                        let old_bid = row.bundle_id.clone();
-                        row.app_name = scanner::resolve_name(&self.apps, bid);
-                        row.bundle_id = bid.clone();
+                    // The default follows the UTI, so every extension sharing
+                    // it changed too — update their rows as well.
+                    let siblings = uti::extensions_sharing_uti(
+                        &ext,
+                        &uti_str,
+                        &scanner::all_extensions(&self.apps),
+                    );
 
-                        // Update apps browser entries
-                        self.update_apps_browser_default(&ext, &old_bid, bid);
+                    if let Some(ref bid) = new_bid {
+                        let mut affected = vec![ext.clone()];
+                        affected.extend(siblings.iter().cloned());
+                        for affected_ext in &affected {
+                            let Some(row_idx) = self
+                                .all_rows
+                                .iter()
+                                .position(|r| r.ext.eq_ignore_ascii_case(affected_ext))
+                            else {
+                                continue;
+                            };
+                            let old_bid = self.all_rows[row_idx].bundle_id.clone();
+                            self.all_rows[row_idx].app_name =
+                                scanner::resolve_name(&self.apps, bid);
+                            self.all_rows[row_idx].bundle_id = bid.clone();
+
+                            // Update apps browser entries
+                            self.update_apps_browser_default(affected_ext, &old_bid, bid);
+                        }
                     }
                     self.apply_filter();
 
                     if verified {
-                        self.status = format!("Set .{} -> {}", ext, app_name);
+                        let mut status = format!("Set .{} -> {}", ext, app_name);
+                        if !siblings.is_empty() {
+                            let shown: Vec<String> =
+                                siblings.iter().take(3).map(|s| format!(".{s}")).collect();
+                            let extra = siblings.len().saturating_sub(3);
+                            let more = if extra > 0 {
+                                format!(" +{extra}")
+                            } else {
+                                String::new()
+                            };
+                            status.push_str(&format!(
+                                " (also affects {}{})",
+                                shown.join(", "),
+                                more
+                            ));
+                        }
+                        self.status = status;
                         self.status_kind = StatusKind::Success;
                         self.changes.push((ext, app_name));
                     } else {
@@ -535,12 +568,7 @@ fn load_data(phase: Arc<Mutex<LoadPhase>>, progress: Arc<AtomicUsize>) -> Result
         }
     };
 
-    let mut extensions: Vec<String> = apps
-        .iter()
-        .flat_map(|app| app.extensions.iter().map(|e| e.to_lowercase()))
-        .collect();
-    extensions.sort();
-    extensions.dedup();
+    let extensions = scanner::all_extensions(&apps);
 
     let total = extensions.len();
     *phase.lock().unwrap() = LoadPhase::Querying { total };

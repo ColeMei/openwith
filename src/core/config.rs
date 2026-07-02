@@ -19,12 +19,7 @@ pub struct ImportResult {
 /// Export current file associations to a Config.
 /// Values are bundle IDs (canonical, lossless for round-tripping).
 pub fn export_associations(apps: &[AppInfo]) -> Result<(Config, BTreeMap<String, String>)> {
-    let mut extensions: Vec<String> = apps
-        .iter()
-        .flat_map(|app| app.extensions.iter().map(|e| e.to_lowercase()))
-        .collect();
-    extensions.sort();
-    extensions.dedup();
+    let extensions = scanner::all_extensions(apps);
 
     let associations: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
     let display_names: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());

@@ -30,5 +30,10 @@ pub fn run(ext: &str, app_name: &str) -> Result<()> {
         }
     }
 
+    let siblings = uti::extensions_sharing_uti(ext, &uti, &scanner::all_extensions(&apps));
+    if let Some(note) = uti::shared_uti_note(ext, &uti, &siblings) {
+        eprintln!("note: {}", note);
+    }
+
     Ok(())
 }
