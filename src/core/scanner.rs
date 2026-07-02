@@ -59,23 +59,6 @@ fn collect_app_paths_from_dir(dir: &Path, max_depth: usize, app_paths: &mut Vec<
     }
 }
 
-/// Read CFBundleIdentifier from an app's Info.plist via PlistBuddy.
-fn read_bundle_id_from_plist(plist_path: &str) -> Option<String> {
-    let output = Command::new("/usr/libexec/PlistBuddy")
-        .arg("-c")
-        .arg("Print :CFBundleIdentifier")
-        .arg(plist_path)
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.is_empty() { None } else { Some(id) }
-}
-
 /// Scan all apps and build AppInfo structs with extensions and bundle IDs.
 pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
     let paths = scan_app_paths()?;
@@ -87,15 +70,14 @@ pub fn scan_all_apps() -> Result<Vec<AppInfo>> {
             None => continue,
         };
 
-        let info_plist = format!("{}/Contents/Info.plist", app_path);
-        let document_types = plist::parse_document_types(&info_plist).unwrap_or_default();
-        let bundle_id = read_bundle_id_from_plist(&info_plist).unwrap_or_default();
+        let info_plist = Path::new(app_path).join("Contents/Info.plist");
+        let info = plist::parse_bundle_info(&info_plist).unwrap_or_default();
 
         apps.push(AppInfo {
             name,
-            bundle_id,
-            extensions: document_types.extensions,
-            content_types: document_types.content_types,
+            bundle_id: info.bundle_id.unwrap_or_default(),
+            extensions: info.extensions,
+            content_types: info.content_types,
         });
     }
 

@@ -18,6 +18,7 @@ anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 core-foundation = "0.10"
 crossterm = "0.28"
+plist = "1"
 ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
