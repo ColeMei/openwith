@@ -91,5 +91,8 @@ pub enum Commands {
     Import {
         /// Path to TOML config file
         path: String,
+        /// Preview the changes without applying them
+        #[arg(long)]
+        dry_run: bool,
     },
 }

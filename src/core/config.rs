@@ -13,6 +13,7 @@ pub struct Config {
 
 pub struct ImportResult {
     pub applied: Vec<(String, String)>,
+    pub unchanged: Vec<(String, String)>,
     pub skipped: Vec<(String, String, String)>,
 }
 
@@ -55,9 +56,12 @@ pub fn export_associations(apps: &[AppInfo]) -> Result<(Config, BTreeMap<String,
 
 /// Import associations from a Config, applying each one.
 /// Values can be bundle IDs or display names — both are accepted, and both
-/// must resolve to an installed app.
-pub fn import_associations(config: &Config, apps: &[AppInfo]) -> ImportResult {
+/// must resolve to an installed app. Associations already set correctly are
+/// left untouched, so import is idempotent. With `dry_run`, nothing is
+/// written and `applied` lists what would change.
+pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> ImportResult {
     let mut applied = Vec::new();
+    let mut unchanged = Vec::new();
     let mut skipped = Vec::new();
 
     for (ext_key, value) in &config.associations {
@@ -79,6 +83,21 @@ pub fn import_associations(config: &Config, apps: &[AppInfo]) -> ImportResult {
             }
         };
 
+        // Leave associations that already match untouched.
+        let current = launchservices::query_default_bundle_id(ext).ok().flatten();
+        if current
+            .as_deref()
+            .is_some_and(|c| c.eq_ignore_ascii_case(&bundle_id))
+        {
+            unchanged.push((ext_key.clone(), display_name));
+            continue;
+        }
+
+        if dry_run {
+            applied.push((ext_key.clone(), display_name));
+            continue;
+        }
+
         match launchservices::set_default(&bundle_id, &uti_str) {
             Ok(_) => {
                 applied.push((ext_key.clone(), display_name));
@@ -89,7 +108,11 @@ pub fn import_associations(config: &Config, apps: &[AppInfo]) -> ImportResult {
         }
     }
 
-    ImportResult { applied, skipped }
+    ImportResult {
+        applied,
+        unchanged,
+        skipped,
+    }
 }
 
 /// Serialize a Config to TOML string with display name comments.

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use crate::core::{config, scanner, uti};
 
-pub fn run(path: &str) -> Result<()> {
+pub fn run(path: &str, dry_run: bool) -> Result<()> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("failed to read '{}'", path))?;
     let cfg = config::from_toml(&content)?;
@@ -16,8 +16,15 @@ pub fn run(path: &str) -> Result<()> {
     eprintln!("Scanning applications...");
     let apps = scanner::scan_all_apps()?;
 
-    eprintln!("Applying {} associations...", cfg.associations.len());
-    let result = config::import_associations(&cfg, &apps);
+    if dry_run {
+        eprintln!(
+            "Previewing {} associations (dry run)...",
+            cfg.associations.len()
+        );
+    } else {
+        eprintln!("Applying {} associations...", cfg.associations.len());
+    }
+    let result = config::import_associations(&cfg, &apps, dry_run);
 
     // Warn about extensions changed as a side effect of a shared UTI,
     // unless they are themselves part of the import.
@@ -49,6 +56,10 @@ pub fn run(path: &str) -> Result<()> {
         }
     }
 
+    if !result.unchanged.is_empty() {
+        println!("  {} already set correctly", result.unchanged.len());
+    }
+
     if !result.skipped.is_empty() {
         eprintln!();
         for (ext, app, reason) in &result.skipped {
@@ -57,8 +68,10 @@ pub fn run(path: &str) -> Result<()> {
     }
 
     println!(
-        "\nApplied {}, skipped {}",
+        "\n{} {}, unchanged {}, skipped {}",
+        if dry_run { "Would apply" } else { "Applied" },
         result.applied.len(),
+        result.unchanged.len(),
         result.skipped.len()
     );
 

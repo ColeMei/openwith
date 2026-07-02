@@ -23,8 +23,8 @@ fn main() -> Result<()> {
         Some(cli::Commands::Export { output }) => {
             commands::export::run(output.as_deref())?;
         }
-        Some(cli::Commands::Import { path }) => {
-            commands::import::run(&path)?;
+        Some(cli::Commands::Import { path, dry_run }) => {
+            commands::import::run(&path, dry_run)?;
         }
         None => {
             commands::tui::run(commands::tui::InitialView::Extensions)?;
