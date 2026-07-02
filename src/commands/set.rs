@@ -5,28 +5,24 @@ use crate::core::{launchservices, scanner, uti};
 pub fn run(ext: &str, app_name: &str) -> Result<()> {
     let ext = ext.trim_start_matches('.');
 
-    // Find the app
+    // Find the app (by name or bundle ID)
     eprintln!("Scanning applications...");
     let apps = scanner::scan_all_apps()?;
-    let app = scanner::resolve_app(&apps, app_name)?;
-
-    if app.bundle_id.is_empty() {
-        anyhow::bail!("could not determine bundle ID for '{}'", app.name);
-    }
+    let (bundle_id, display_name) = scanner::resolve_app_or_bundle_id(&apps, app_name)?;
 
     // Resolve UTI
     let uti = uti::uti_for_extension(ext)?;
 
     // Set default
-    launchservices::set_default(&app.bundle_id, &uti)?;
+    launchservices::set_default(&bundle_id, &uti)?;
 
     // Verify
     match launchservices::query_default_bundle_id(ext)? {
-        Some(bid) if bid.eq_ignore_ascii_case(&app.bundle_id) => {
-            println!("Set .{} -> {}", ext, app.name);
+        Some(bid) if bid.eq_ignore_ascii_case(&bundle_id) => {
+            println!("Set .{} -> {}", ext, display_name);
         }
         _ => {
-            println!("Set .{} -> {} (could not verify)", ext, app.name);
+            println!("Set .{} -> {} (could not verify)", ext, display_name);
         }
     }
 

@@ -141,6 +141,31 @@ pub fn resolve_app<'a>(apps: &'a [AppInfo], app_name: &str) -> Result<&'a AppInf
     }
 }
 
+/// Resolve a user-supplied value — an app name or a bundle ID — to a
+/// `(bundle_id, display_name)` pair.
+///
+/// Exact bundle ID matches win (e.g. "com.apple.Preview"); anything else is
+/// resolved as an app name via `resolve_app`.
+pub fn resolve_app_or_bundle_id(apps: &[AppInfo], value: &str) -> Result<(String, String)> {
+    let search = value.trim();
+    if search.is_empty() {
+        bail!("app name cannot be empty");
+    }
+
+    if let Some(app) = apps
+        .iter()
+        .find(|a| !a.bundle_id.is_empty() && a.bundle_id.eq_ignore_ascii_case(search))
+    {
+        return Ok((app.bundle_id.clone(), app.name.clone()));
+    }
+
+    match resolve_app(apps, search) {
+        Ok(app) if !app.bundle_id.is_empty() => Ok((app.bundle_id.clone(), app.name.clone())),
+        Ok(app) => bail!("could not determine bundle ID for '{}'", app.name),
+        Err(err) => Err(err),
+    }
+}
+
 /// Resolve a bundle ID to an app name. Falls back to the raw bundle ID.
 pub fn resolve_name(apps: &[AppInfo], bundle_id: &str) -> String {
     apps.iter()
@@ -170,7 +195,7 @@ fn ambiguous_app_message(search: &str, matches: &[&AppInfo]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_app_paths_from_dir, resolve_app};
+    use super::{collect_app_paths_from_dir, resolve_app, resolve_app_or_bundle_id};
     use crate::core::types::AppInfo;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -206,6 +231,37 @@ mod tests {
         let resolved = resolve_app(&apps, "prev").unwrap();
 
         assert_eq!(resolved.bundle_id, "com.apple.Preview");
+    }
+
+    #[test]
+    fn resolve_app_or_bundle_id_accepts_exact_bundle_id() {
+        let apps = vec![
+            app("Preview", "com.apple.Preview"),
+            app("Skim", "net.sourceforge.skim-app.skim"),
+        ];
+
+        let (bundle_id, name) = resolve_app_or_bundle_id(&apps, "com.apple.preview").unwrap();
+
+        assert_eq!(bundle_id, "com.apple.Preview");
+        assert_eq!(name, "Preview");
+    }
+
+    #[test]
+    fn resolve_app_or_bundle_id_accepts_app_name() {
+        let apps = vec![app("Preview", "com.apple.Preview")];
+
+        let (bundle_id, name) = resolve_app_or_bundle_id(&apps, "prev").unwrap();
+
+        assert_eq!(bundle_id, "com.apple.Preview");
+        assert_eq!(name, "Preview");
+    }
+
+    #[test]
+    fn resolve_app_or_bundle_id_rejects_unknown_values() {
+        let apps = vec![app("Preview", "com.apple.Preview")];
+
+        assert!(resolve_app_or_bundle_id(&apps, "com.example.NotInstalled").is_err());
+        assert!(resolve_app_or_bundle_id(&apps, "  ").is_err());
     }
 
     #[test]
