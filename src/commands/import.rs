@@ -35,8 +35,12 @@ pub fn run(path: &str, dry_run: bool) -> Result<()> {
         .map(|k| k.trim_start_matches('.').to_lowercase())
         .collect();
 
-    for (ext, app) in &result.applied {
-        println!("  {} -> {}", ext, app);
+    for (ext, app, previous) in &result.applied {
+        let was = previous
+            .as_ref()
+            .map(|p| format!(" (was: {p})"))
+            .unwrap_or_default();
+        println!("  {} -> {}{}", ext, app, was);
 
         if let Ok(uti_str) = uti::uti_for_extension(ext) {
             let siblings: Vec<String> = uti::extensions_sharing_uti(ext, &uti_str, &all_extensions)

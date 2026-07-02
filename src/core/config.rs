@@ -12,7 +12,8 @@ pub struct Config {
 }
 
 pub struct ImportResult {
-    pub applied: Vec<(String, String)>,
+    /// (extension key, new app name, previous app name if any)
+    pub applied: Vec<(String, String, Option<String>)>,
     pub unchanged: Vec<(String, String)>,
     pub skipped: Vec<(String, String, String)>,
 }
@@ -93,14 +94,16 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
             continue;
         }
 
+        let previous = current.map(|c| scanner::resolve_name(apps, &c));
+
         if dry_run {
-            applied.push((ext_key.clone(), display_name));
+            applied.push((ext_key.clone(), display_name, previous));
             continue;
         }
 
         match launchservices::set_default(&bundle_id, &uti_str) {
             Ok(_) => {
-                applied.push((ext_key.clone(), display_name));
+                applied.push((ext_key.clone(), display_name, previous));
             }
             Err(e) => {
                 skipped.push((ext_key.clone(), display_name, e.to_string()));

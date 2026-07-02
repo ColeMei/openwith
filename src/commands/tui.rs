@@ -315,6 +315,13 @@ impl App {
                         &scanner::all_extensions(&self.apps),
                     );
 
+                    let previous_name = self
+                        .all_rows
+                        .iter()
+                        .find(|r| r.ext == ext)
+                        .map(|r| r.app_name.clone())
+                        .filter(|n| n != "-" && !n.eq_ignore_ascii_case(&app_name));
+
                     if let Some(ref bid) = new_bid {
                         let mut affected = vec![ext.clone()];
                         affected.extend(siblings.iter().cloned());
@@ -339,6 +346,9 @@ impl App {
 
                     if verified {
                         let mut status = format!("Set .{} -> {}", ext, app_name);
+                        if let Some(prev) = previous_name {
+                            status.push_str(&format!(" (was {prev})"));
+                        }
                         if !siblings.is_empty() {
                             let shown: Vec<String> =
                                 siblings.iter().take(3).map(|s| format!(".{s}")).collect();
