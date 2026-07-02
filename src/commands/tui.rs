@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::core::types::AppInfo;
-use crate::core::{launchservices, scanner, uti};
+use crate::core::{launchservices, listing, scanner, uti};
 use crate::logo::LOGO;
 
 /// Which view to show when the TUI starts.
@@ -608,38 +608,19 @@ fn load_data(phase: Arc<Mutex<LoadPhase>>, progress: Arc<AtomicUsize>) -> Result
         }
     };
 
-    let extensions = scanner::all_extensions(&apps);
-
-    let total = extensions.len();
+    let total = scanner::all_extensions(&apps).len();
     *phase.lock().unwrap() = LoadPhase::Querying { total };
 
-    let rows: Mutex<Vec<ExtRow>> = Mutex::new(Vec::new());
-    std::thread::scope(|s| {
-        for chunk in extensions.chunks(20) {
-            let rows = &rows;
-            let apps = &apps;
-            let progress = &progress;
-            let chunk = chunk.to_vec();
-            s.spawn(move || {
-                for ext in chunk {
-                    let bundle_id = launchservices::query_default_bundle_id(&ext).ok().flatten();
-                    let (app_name, bid) = match &bundle_id {
-                        Some(bid) => (scanner::resolve_name(apps, bid), bid.clone()),
-                        None => ("-".into(), "-".into()),
-                    };
-                    rows.lock().unwrap().push(ExtRow {
-                        ext,
-                        app_name,
-                        bundle_id: bid,
-                    });
-                    progress.fetch_add(1, Ordering::Relaxed);
-                }
-            });
-        }
-    });
-
-    let mut rows = rows.into_inner().unwrap();
-    rows.sort_by(|a, b| a.ext.cmp(&b.ext));
+    let rows: Vec<ExtRow> = listing::query_all(&apps, &|| {
+        progress.fetch_add(1, Ordering::Relaxed);
+    })
+    .into_iter()
+    .map(|assoc| ExtRow {
+        ext: assoc.ext,
+        app_name: assoc.app_name.unwrap_or_else(|| "-".into()),
+        bundle_id: assoc.bundle_id.unwrap_or_else(|| "-".into()),
+    })
+    .collect();
 
     *phase.lock().unwrap() = LoadPhase::Done(Some(LoadResult { apps, rows }));
     Ok(())

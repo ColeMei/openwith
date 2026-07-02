@@ -21,4 +21,5 @@ crossterm = "0.28"
 plist = "1"
 ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8"

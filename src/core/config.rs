@@ -1,10 +1,9 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::Mutex;
 
 use super::types::AppInfo;
-use super::{launchservices, scanner, uti};
+use super::{launchservices, listing, scanner, uti};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -21,38 +20,23 @@ pub struct ImportResult {
 /// Export current file associations to a Config.
 /// Values are bundle IDs (canonical, lossless for round-tripping).
 pub fn export_associations(apps: &[AppInfo]) -> Result<(Config, BTreeMap<String, String>)> {
-    let extensions = scanner::all_extensions(apps);
+    let mut associations = BTreeMap::new();
+    let mut display_names = BTreeMap::new();
 
-    let associations: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
-    let display_names: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
-
-    std::thread::scope(|s| {
-        for chunk in extensions.chunks(20) {
-            let associations = &associations;
-            let display_names = &display_names;
-            let chunk = chunk.to_vec();
-            s.spawn(move || {
-                for ext in chunk {
-                    if let Some(bid) = launchservices::query_default_bundle_id(&ext).ok().flatten()
-                    {
-                        let key = format!(".{}", ext);
-                        let name = scanner::resolve_name(apps, &bid);
-                        if name != bid {
-                            display_names.lock().unwrap().insert(key.clone(), name);
-                        }
-                        associations.lock().unwrap().insert(key, bid);
-                    }
-                }
-            });
+    for assoc in listing::query_all(apps, &|| {}) {
+        let Some(bundle_id) = assoc.bundle_id else {
+            continue;
+        };
+        let key = format!(".{}", assoc.ext);
+        if let Some(name) = assoc.app_name
+            && name != bundle_id
+        {
+            display_names.insert(key.clone(), name);
         }
-    });
+        associations.insert(key, bundle_id);
+    }
 
-    Ok((
-        Config {
-            associations: associations.into_inner().unwrap(),
-        },
-        display_names.into_inner().unwrap(),
-    ))
+    Ok((Config { associations }, display_names))
 }
 
 /// Import associations from a Config, applying each one.

@@ -8,16 +8,16 @@ fn main() -> Result<()> {
     let args = cli::Cli::parse_with_help();
 
     match args.command {
-        Some(cli::Commands::List { .. }) => {
-            commands::tui::run(commands::tui::InitialView::Extensions)?;
+        Some(cli::Commands::List { plain, json }) => {
+            commands::list::run(plain, json)?;
         }
-        Some(cli::Commands::Current { ext }) => {
-            commands::current::run(&ext)?;
+        Some(cli::Commands::Current { ext, json }) => {
+            commands::current::run(&ext, json)?;
         }
         Some(cli::Commands::Set { ext, app }) => {
             commands::set::run(&ext, &app)?;
         }
-        Some(cli::Commands::Apps { .. }) => {
+        Some(cli::Commands::Apps) => {
             commands::tui::run(commands::tui::InitialView::Apps)?;
         }
         Some(cli::Commands::Export { output }) => {
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
             commands::import::run(&path, dry_run)?;
         }
         None => {
-            commands::tui::run(commands::tui::InitialView::Extensions)?;
+            commands::list::run(false, false)?;
         }
     }
 
