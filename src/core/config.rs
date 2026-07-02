@@ -53,27 +53,9 @@ pub fn export_associations(apps: &[AppInfo]) -> Result<(Config, BTreeMap<String,
     ))
 }
 
-/// Resolve a config value to a bundle ID. If the value looks like a bundle ID
-/// (contains a dot), use it directly. Otherwise, resolve as a display name.
-fn resolve_bundle_id(value: &str, apps: &[AppInfo]) -> Result<(String, String), String> {
-    // Heuristic: bundle IDs contain dots (e.g. "com.apple.Preview")
-    // Display names generally don't (e.g. "Preview", "Visual Studio Code")
-    if value.contains('.') && !value.starts_with('.') {
-        // Looks like a bundle ID — use directly, resolve name for display
-        let name = scanner::resolve_name(apps, value);
-        return Ok((value.to_string(), name));
-    }
-
-    // Treat as display name
-    match scanner::resolve_app(apps, value) {
-        Ok(app) if !app.bundle_id.is_empty() => Ok((app.bundle_id.clone(), app.name.clone())),
-        Ok(app) => Err(format!("no bundle ID for '{}'", app.name)),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
 /// Import associations from a Config, applying each one.
-/// Values can be bundle IDs or display names — both are accepted.
+/// Values can be bundle IDs or display names — both are accepted, and both
+/// must resolve to an installed app.
 pub fn import_associations(config: &Config, apps: &[AppInfo]) -> ImportResult {
     let mut applied = Vec::new();
     let mut skipped = Vec::new();
@@ -81,10 +63,10 @@ pub fn import_associations(config: &Config, apps: &[AppInfo]) -> ImportResult {
     for (ext_key, value) in &config.associations {
         let ext = ext_key.trim_start_matches('.');
 
-        let (bundle_id, display_name) = match resolve_bundle_id(value, apps) {
+        let (bundle_id, display_name) = match scanner::resolve_app_or_bundle_id(apps, value) {
             Ok(pair) => pair,
             Err(reason) => {
-                skipped.push((ext_key.clone(), value.clone(), reason));
+                skipped.push((ext_key.clone(), value.clone(), reason.to_string()));
                 continue;
             }
         };
