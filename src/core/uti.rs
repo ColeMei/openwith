@@ -1,6 +1,8 @@
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow};
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 #[link(name = "CoreServices", kind = "framework")]
 unsafe extern "C" {
@@ -24,13 +26,17 @@ unsafe extern "C" {
 pub fn uti_for_extension(ext: &str) -> Result<String> {
     let ext = ext.trim_start_matches('.').to_lowercase();
 
-    match system_uti(&ext) {
-        Ok(uti) => Ok(uti),
-        Err(err) => match hardcoded_uti(&ext) {
-            Some(uti) => Ok(uti.to_string()),
-            None => Err(err),
-        },
+    if let Some(cached) = extension_cache().lock().unwrap().get(&ext) {
+        return cached.clone().ok_or_else(|| unrecognized_extension(&ext));
     }
+
+    let resolved = system_uti(&ext).or_else(|| hardcoded_uti(&ext).map(str::to_string));
+    extension_cache()
+        .lock()
+        .unwrap()
+        .insert(ext.clone(), resolved.clone());
+
+    resolved.ok_or_else(|| unrecognized_extension(&ext))
 }
 
 pub fn conforms_to(uti: &str, parent_uti: &str) -> bool {
@@ -38,12 +44,40 @@ pub fn conforms_to(uti: &str, parent_uti: &str) -> bool {
         return true;
     }
 
-    let uti = CFString::new(uti);
-    let parent_uti = CFString::new(parent_uti);
-    unsafe { UTTypeConformsTo(uti.as_concrete_TypeRef(), parent_uti.as_concrete_TypeRef()) }
+    let key = (uti.to_string(), parent_uti.to_string());
+    if let Some(&cached) = conformance_cache().lock().unwrap().get(&key) {
+        return cached;
+    }
+
+    let uti_cf = CFString::new(uti);
+    let parent_cf = CFString::new(parent_uti);
+    let result = unsafe {
+        UTTypeConformsTo(
+            uti_cf.as_concrete_TypeRef(),
+            parent_cf.as_concrete_TypeRef(),
+        )
+    };
+
+    conformance_cache().lock().unwrap().insert(key, result);
+    result
 }
 
-fn system_uti(ext: &str) -> Result<String> {
+/// Cache for extension -> UTI lookups; `None` records unresolvable extensions.
+fn extension_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn conformance_cache() -> &'static Mutex<HashMap<(String, String), bool>> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, String), bool>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn unrecognized_extension(ext: &str) -> anyhow::Error {
+    anyhow!("extension .{} is not recognized by macOS", ext)
+}
+
+fn system_uti(ext: &str) -> Option<String> {
     let extension = CFString::new(ext);
     let uti_ref = unsafe {
         UTTypeCreatePreferredIdentifierForTag(
@@ -54,15 +88,15 @@ fn system_uti(ext: &str) -> Result<String> {
     };
 
     if uti_ref.is_null() {
-        bail!("extension .{} is not recognized by macOS", ext);
+        return None;
     }
 
     let uti = unsafe { CFString::wrap_under_create_rule(uti_ref) }.to_string();
     if uti.is_empty() || uti.starts_with("dyn.") {
-        bail!("extension .{} is not recognized by macOS", ext);
+        None
+    } else {
+        Some(uti)
     }
-
-    Ok(uti)
 }
 
 fn hardcoded_uti(ext: &str) -> Option<&'static str> {
