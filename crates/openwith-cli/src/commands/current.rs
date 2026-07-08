@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::core::{launchservices, scanner};
+use openwith_core::{launchservices, scanner};
 
 pub fn run(ext: &str, json: bool, scheme: bool) -> Result<()> {
     if scheme {

@@ -17,9 +17,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::core::types::AppInfo;
-use crate::core::{launchservices, listing, scanner, uti};
 use crate::logo::LOGO;
+use openwith_core::types::AppInfo;
+use openwith_core::{launchservices, listing, scanner, uti};
 
 /// Which view to show when the TUI starts.
 pub enum InitialView {

@@ -434,19 +434,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "openwith"
+name = "openwith-cli"
 version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
  "clap_complete",
  "clap_mangen",
- "core-foundation",
  "crossterm",
- "plist",
+ "openwith-core",
  "ratatui",
  "serde",
  "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "openwith-core"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "core-foundation",
+ "plist",
+ "serde",
  "toml",
 ]
 

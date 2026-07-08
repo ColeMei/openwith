@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::io::IsTerminal;
 
-use crate::core::{listing, scanner};
+use openwith_core::{listing, scanner};
 
 use super::tui;
 

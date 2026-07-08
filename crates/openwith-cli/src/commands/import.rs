@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 
-use crate::core::{config, scanner, uti};
+use openwith_core::{config, scanner, uti};
 
 pub fn run(path: &str, dry_run: bool) -> Result<()> {
     let content =

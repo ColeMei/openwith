@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::core::{config, scanner};
+use openwith_core::{config, scanner};
 
 pub fn run(output: Option<&str>) -> Result<()> {
     eprintln!("Scanning applications...");

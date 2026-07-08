@@ -197,7 +197,7 @@ fn ambiguous_app_message(search: &str, matches: &[&AppInfo]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{collect_app_paths_from_dir, resolve_app, resolve_app_or_bundle_id};
-    use crate::core::types::AppInfo;
+    use crate::types::AppInfo;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
