@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::core::types::AppInfo;
-use crate::core::{launchservices, scanner, uti};
+use openwith_core::types::AppInfo;
+use openwith_core::{launchservices, scanner, uti};
 
 use super::current::normalize_scheme;
 

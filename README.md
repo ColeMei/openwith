@@ -36,13 +36,13 @@ brew install openwith
 If you prefer installing from source with Cargo, install Rust via [rustup](https://rustup.rs), then run:
 
 ```bash
-cargo install --git https://github.com/ColeMei/openwith
+cargo install --git https://github.com/ColeMei/openwith openwith-cli
 ```
 
 For local development builds from this repository:
 
 ```bash
-cargo install --path .
+cargo install --path crates/openwith-cli
 ```
 
 ## Quick Start

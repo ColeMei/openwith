@@ -1,7 +1,6 @@
 use anyhow::Result;
 mod cli;
 mod commands;
-mod core;
 mod logo;
 
 fn main() -> Result<()> {

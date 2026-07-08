@@ -1,19 +1,15 @@
-[package]
-name = "openwith"
+[workspace]
+resolver = "2"
+members = ["crates/openwith-core", "crates/openwith-cli"]
+
+[workspace.package]
 version = "0.4.0"
 edition = "2024"
-description = "Manage macOS file extension associations"
 license = "MIT"
 repository = "https://github.com/ColeMei/openwith"
 homepage = "https://github.com/ColeMei/openwith"
-keywords = ["macos", "cli", "file-associations", "launch-services"]
-categories = ["command-line-utilities", "os::macos-apis"]
 
-[[bin]]
-name = "openwith"
-path = "src/main.rs"
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
