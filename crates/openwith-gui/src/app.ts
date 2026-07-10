@@ -22,8 +22,10 @@ import {
   saveSettings,
   schemeRole,
   sheetApps,
+  shortcutGlyphs,
   state,
   type Tab,
+  type ToastState,
 } from "./state";
 import { applyTheme, type Appearance } from "./theme";
 
@@ -71,9 +73,10 @@ function renderExtensions(): string {
     .map((r) => {
       const appName = r.app_name ?? "(none)";
       const bid = r.bundle_id ?? "";
-      const badge = r.conflict
-        ? `<span class="badge-conflict" title="Shares a UTI with sibling extensions">UTI ⚠</span>`
-        : "";
+      const badge =
+        r.conflict && state.settings.warnUtiConflicts
+          ? `<span class="badge-conflict" title="Shares a UTI with sibling extensions">UTI ⚠</span>`
+          : "";
       return `
       <div class="ext-row ${gridClass}" data-action="open-ext-sheet" data-ext="${escapeHtml(r.ext)}">
         <span class="ext-ext">.${escapeHtml(r.ext)}</span>
@@ -171,7 +174,7 @@ function renderAppDetail(app: AppDto): string {
       ${avatar(app.name, "avatar-lg")}
       <div style="min-width:0">
         <div class="app-detail-name">${escapeHtml(app.name)}</div>
-        <div class="app-detail-bid mono">${escapeHtml(app.bundle_id)}</div>
+        ${state.settings.showBundleIds ? `<div class="app-detail-bid mono">${escapeHtml(app.bundle_id)}</div>` : ""}
       </div>
       <button class="btn-claim-all" data-action="claim-all" ${stats.claimable.length === 0 ? "disabled" : ""}>Claim all supported (${stats.claimable.length})</button>
     </div>
@@ -383,8 +386,10 @@ function renderSettings(): string {
 
   const cliStatus = state.cliVersion
     ? `<span class="desc ok">✓ Installed ${escapeHtml(state.cliVersion)} — GUI and CLI share the same engine</span>`
-    : `<span class="desc">Not found — install with <span class="mono">brew install openwith</span></span>`;
-  const cliPill = state.cliVersion ? "brew upgrade openwith" : "brew install openwith";
+    : `<span class="desc">Not found — install with <span class="mono">brew install ColeMei/openwith/openwith</span></span>`;
+  const cliPill = state.cliVersion
+    ? "brew upgrade openwith"
+    : "brew install ColeMei/openwith/openwith";
 
   return `
   <div class="view settings-view">
@@ -392,7 +397,11 @@ function renderSettings(): string {
       <div class="settings-card">
         <div class="settings-card-head">GENERAL</div>
         ${toggleRow("launchAtLogin", s.launchAtLogin, "Launch at login", "Start OpenWith when you log in")}
-        ${toggleRow("showMenuBar", s.showMenuBar, "Show in menu bar", "Quick-access panel with ⌥⌘O")}
+        ${toggleRow("showMenuBar", s.showMenuBar, "Show in menu bar", `Quick-access panel with ${shortcutGlyphs(s.toggleShortcut)}`)}
+        <div class="settings-row">
+          <span><span class="label">Popover shortcut</span><span class="desc">${state.recordingShortcut ? "Press the new keys… (Esc cancels)" : "Global shortcut that toggles the quick panel"}</span></span>
+          <button class="btn-pill" data-action="record-shortcut">${state.recordingShortcut ? "…" : escapeHtml(shortcutGlyphs(s.toggleShortcut))}</button>
+        </div>
         ${toggleRow("hideDockIcon", s.hideDockIcon, "Hide Dock icon", "Menu-bar-only mode — needs the menu bar icon on", !s.showMenuBar)}
         <div class="settings-row">
           <span><span class="label">Appearance</span><span class="desc">System follows your macOS setting</span></span>
@@ -495,6 +504,22 @@ function renderSheet(): string {
       <div class="sheet-apps">${appsHtml || `<span class="italic-muted">No apps match.</span>`}</div>
     </div>
   </div>`;
+}
+
+/** Toasts dismiss themselves; ones carrying an Undo button linger longer. */
+let toastTimer: number | undefined;
+
+function showToast(toast: ToastState | null) {
+  window.clearTimeout(toastTimer);
+  state.toast = toast;
+  if (!toast) return;
+  toastTimer = window.setTimeout(
+    () => {
+      state.toast = null;
+      render();
+    },
+    toast.undo ? 8000 : 5000,
+  );
 }
 
 function renderToast(): string {
@@ -623,7 +648,7 @@ function applySetResult(result: SetResultDto, announce = true) {
     result.siblings.forEach(patchOne);
   }
   if (announce) {
-    state.toast = buildToast(result);
+    showToast(buildToast(result));
   }
 }
 
@@ -656,10 +681,10 @@ async function undoSet(setResult: SetResultDto) {
       setResult.timestamp,
     );
     applySetResult(result, false);
-    state.toast = { text: `Reverted ${result.key} → ${result.app_name}` };
+    showToast({ text: `Reverted ${result.key} → ${result.app_name}` });
     afterApply();
   } catch (e) {
-    state.toast = { text: `Undo failed: ${e}` };
+    showToast({ text: `Undo failed: ${e}` });
   }
   render();
 }
@@ -687,7 +712,7 @@ async function chooseApp(bundleId: string) {
     applySetResult(result);
     if (!result.unchanged) afterApply();
   } catch (e) {
-    state.toast = { text: `Failed: ${e}` };
+    showToast({ text: `Failed: ${e}` });
   }
   render();
 }
@@ -701,7 +726,7 @@ async function claimExt(ext: string) {
     applySetResult(result);
     if (!result.unchanged) afterApply();
   } catch (e) {
-    state.toast = { text: `Failed: ${e}` };
+    showToast({ text: `Failed: ${e}` });
   }
   render();
 }
@@ -721,7 +746,7 @@ async function claimAll() {
       // skip failures, continue claiming the rest
     }
   }
-  state.toast = { text: `Claimed ${count} extension${count === 1 ? "" : "s"} for ${app.name}` };
+  showToast({ text: `Claimed ${count} extension${count === 1 ? "" : "s"} for ${app.name}` });
   if (count > 0) afterApply();
   render();
 }
@@ -734,19 +759,19 @@ async function handleExport() {
       filters: [{ name: "TOML", extensions: ["toml"] }],
     });
   } catch (e) {
-    state.toast = { text: `Export failed: ${e}` };
+    showToast({ text: `Export failed: ${e}` });
     render();
     return;
   }
   if (!path) return;
   try {
     const result = await api.exportToml(path);
-    state.toast = {
+    showToast({
       text: `Exported ${result.association_count} associations and ${result.scheme_count} schemes`,
-    };
+    });
     refreshHistory();
   } catch (e) {
-    state.toast = { text: `Export failed: ${e}` };
+    showToast({ text: `Export failed: ${e}` });
   }
   render();
 }
@@ -760,7 +785,7 @@ async function startImportPreview(path: string) {
       preview,
     };
   } catch (e) {
-    state.toast = { text: `Import failed: ${e}` };
+    showToast({ text: `Import failed: ${e}` });
   }
   render();
 }
@@ -773,7 +798,7 @@ async function handleImportChoose() {
       filters: [{ name: "TOML", extensions: ["toml"] }],
     });
   } catch (e) {
-    state.toast = { text: `Import failed: ${e}` };
+    showToast({ text: `Import failed: ${e}` });
     render();
     return;
   }
@@ -793,13 +818,13 @@ async function applyImport() {
     const result = await api.importToml(pending.path, false);
     state.importPending = null;
     state.snapshot = await api.getSnapshot();
-    state.toast = {
+    showToast({
       text: `Applied ${result.applied.length}, unchanged ${result.unchanged}, skipped ${result.skipped.length}`,
-    };
+    });
     if (result.applied.length > 0) afterApply();
     else refreshHistory();
   } catch (e) {
-    state.toast = { text: `Import failed: ${e}` };
+    showToast({ text: `Import failed: ${e}` });
   } finally {
     state.loading = false;
     render();
@@ -838,7 +863,7 @@ function lookupDroppedFile(path: string) {
   const filename = path.split("/").pop() ?? path;
   const dot = filename.lastIndexOf(".");
   if (dot <= 0) {
-    state.toast = { text: `${filename} has no file extension` };
+    showToast({ text: `${filename} has no file extension` });
     render();
     return;
   }
@@ -875,9 +900,12 @@ async function checkForUpdates() {
     );
     if (!candidate) throw new Error("no releases found");
     state.updateStatus.latest = candidate.tag_name.replace(/^v/, "");
+    // Seconds matter: repeat "Check Now" clicks within the same minute must
+    // still visibly change something.
     state.updateStatus.checkedAt = new Date().toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
     });
   } catch (e) {
     state.updateStatus.error = e instanceof Error ? e.message : String(e);
@@ -902,6 +930,20 @@ root.addEventListener("click", (e) => {
       break;
     case "settings-toggle":
       state.settingsOpen = !state.settingsOpen;
+      state.recordingShortcut = false;
+      if (state.settingsOpen) {
+        // Re-probe so a CLI installed or upgraded since launch shows up.
+        api.detectCli().then((v) => {
+          if (v !== state.cliVersion) {
+            state.cliVersion = v;
+            render();
+          }
+        });
+      }
+      render();
+      break;
+    case "record-shortcut":
+      state.recordingShortcut = !state.recordingShortcut;
       render();
       break;
     case "open-ext-sheet":
@@ -946,7 +988,7 @@ root.addEventListener("click", (e) => {
       break;
     case "undo":
       if (state.toast?.undo) state.toast.undo();
-      state.toast = null;
+      showToast(null);
       render();
       break;
     case "sheet-scope":
@@ -979,12 +1021,12 @@ root.addEventListener("click", (e) => {
         void applyLaunchAtLogin(state.settings.launchAtLogin);
       } else if (key === "showMenuBar") {
         api.setTrayEnabled(state.settings.showMenuBar).catch(() => {
-          state.toast = { text: "Couldn't update the menu bar icon" };
+          showToast({ text: "Couldn't update the menu bar icon" });
           render();
         });
       } else if (key === "hideDockIcon") {
         api.setDockVisible(!state.settings.hideDockIcon).catch(() => {
-          state.toast = { text: "Couldn't change the Dock icon" };
+          showToast({ text: "Couldn't change the Dock icon" });
           render();
         });
       }
@@ -1029,8 +1071,64 @@ root.addEventListener("input", (e) => {
   }
 });
 
+// ---------- shortcut recorder ----------
+
+/** Map a KeyboardEvent.code to a token the Rust-side accelerator parser
+ * accepts: letters, digits, and function keys. */
+function accelKeyFromCode(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^F([1-9]|1[0-2])$/.test(code)) return code.toLowerCase();
+  return null;
+}
+
+async function applyShortcut(accel: string) {
+  const previous = state.settings.toggleShortcut;
+  state.recordingShortcut = false;
+  if (accel === previous) {
+    render();
+    return;
+  }
+  try {
+    await api.setToggleShortcut(accel);
+    state.settings.toggleShortcut = accel;
+    saveSettings();
+    showToast({ text: `Popover shortcut is now ${shortcutGlyphs(accel)}` });
+  } catch (e) {
+    showToast({ text: `Couldn't set shortcut: ${e}` });
+    void api.setToggleShortcut(previous).catch(() => {});
+  }
+  render();
+}
+
+function recordShortcutKey(e: KeyboardEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === "Escape") {
+    state.recordingShortcut = false;
+    render();
+    return;
+  }
+  const key = accelKeyFromCode(e.code);
+  // Keep listening through modifier-only or unsupported presses, and require
+  // a real modifier so a bare letter can't hijack global typing.
+  if (!key || (!e.metaKey && !e.ctrlKey && !e.altKey)) return;
+  const accel = [
+    e.ctrlKey ? "ctrl" : "",
+    e.altKey ? "alt" : "",
+    e.shiftKey ? "shift" : "",
+    e.metaKey ? "cmd" : "",
+    key,
+  ]
+    .filter(Boolean)
+    .join("+");
+  void applyShortcut(accel);
+}
+
 document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+  if (state.recordingShortcut) {
+    recordShortcutKey(e);
+  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
     let id: string;
     if (state.sheet) {
@@ -1093,6 +1191,8 @@ async function bootstrap() {
 
   // Apply persisted preferences that live outside the webview.
   api.setTrayEnabled(state.settings.showMenuBar).catch(() => {});
+  // Replace the launch-time default with the saved popover shortcut.
+  api.setToggleShortcut(state.settings.toggleShortcut).catch(() => {});
   if (state.settings.hideDockIcon && state.settings.showMenuBar) {
     api.setDockVisible(false).catch(() => {});
   }

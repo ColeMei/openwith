@@ -1,6 +1,10 @@
+use std::sync::atomic::Ordering;
+
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_positioner::{Position, WindowExt};
+
+use crate::commands::PopoverPinned;
 
 const TRAY_ID: &str = "openwith-tray";
 
@@ -45,6 +49,10 @@ pub fn toggle_popover(app: &AppHandle) {
     let Some(window) = app.get_webview_window("menubar") else {
         return;
     };
+    // Every toggle starts unpinned; pinning is a per-showing choice.
+    app.state::<PopoverPinned>()
+        .0
+        .store(false, Ordering::Relaxed);
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
         return;
@@ -56,4 +64,7 @@ pub fn toggle_popover(app: &AppHandle) {
     }
     let _ = window.show();
     let _ = window.set_focus();
+    // Focus events are unreliable for the transparent popover panel, so tell
+    // the webview explicitly that it just opened (refresh + reset pin UI).
+    let _ = window.emit("popover-shown", ());
 }
