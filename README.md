@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square" alt="Platform: macOS">
 </p>
 
-**OpenWith** is a small Rust-based macOS terminal tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs.
+**OpenWith** is a small Rust-based macOS tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs. It ships as a terminal tool (CLI + interactive TUI) and a native GUI app, both driven by the same Rust core.
 
 
 ## Install
@@ -44,6 +44,25 @@ For local development builds from this repository:
 ```bash
 cargo install --path crates/openwith-cli
 ```
+
+### GUI app
+
+The native GUI installs as a Homebrew cask (from v0.5.0):
+
+```bash
+brew tap ColeMei/openwith
+brew install --cask openwith
+```
+
+The app is currently unsigned (no Apple Developer ID), so on first launch macOS will
+warn about an unidentified developer — right-click the app → Open, or clear the
+quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/OpenWith.app
+```
+
+To build it from source instead: `cd crates/openwith-gui && npm install && npm run tauri build`.
 
 ## Quick Start
 

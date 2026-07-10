@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/openwith-core", "crates/openwith-cli"]
+members = ["crates/openwith-core", "crates/openwith-cli", "crates/openwith-gui/src-tauri"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/ColeMei/openwith"

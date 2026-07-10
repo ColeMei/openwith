@@ -59,24 +59,8 @@ fn export_schemes(
     apps: &[AppInfo],
     display_names: &mut BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    for app in apps {
-        for scheme in &app.url_schemes {
-            *counts.entry(scheme.to_lowercase()).or_default() += 1;
-        }
-    }
-
-    let mut candidates: std::collections::BTreeSet<String> = counts
-        .into_iter()
-        .filter(|(_, count)| *count >= 2)
-        .map(|(scheme, _)| scheme)
-        .collect();
-    for common in ["http", "https", "mailto"] {
-        candidates.insert(common.to_string());
-    }
-
     let mut schemes = BTreeMap::new();
-    for scheme in candidates {
+    for scheme in listing::contested_schemes(apps) {
         if let Some(bundle_id) = launchservices::query_default_scheme_handler(&scheme)
             .ok()
             .flatten()

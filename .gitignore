@@ -1,2 +1,3 @@
 /target
 .superpowers/
+.claude/settings.local.json
