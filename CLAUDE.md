@@ -150,7 +150,7 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
    gh release upload vX.Y.Z target/release/bundle/dmg/OpenWith_X.Y.Z_aarch64.dmg
    ```
    The app is unsigned (no Apple Developer ID yet) — first launch needs `xattr -dr com.apple.quarantine /Applications/OpenWith.app` or right-click → Open.
-8. Bump the Homebrew formula in `ColeMei/homebrew-openwith` (url + sha256 of the new tag tarball). Since the workspace conversion, the formula's `install` block must use `system "cargo", "install", *std_cargo_args, "--path", "crates/openwith-cli"` (the repo root is now a virtual workspace with no installable package at `.`).
+8. Bump the Homebrew formula in `ColeMei/homebrew-openwith` (url + sha256 of the new tag tarball). Since the workspace conversion, the formula's `install` block must use `system "cargo", "install", *std_cargo_args(path: "crates/openwith-cli")` (the repo root is a virtual workspace with no installable package at `.`; the path must go through the helper's `path:` keyword — appending a separate `--path` flag duplicates the helper's built-in `--path=.` and cargo rejects it).
 9. Update the `openwith-gui` cask in `ColeMei/homebrew-openwith` (`Casks/openwith-gui.rb`, url + sha256 of the .dmg release asset) with the quarantine caveat, so `brew install --cask ColeMei/openwith/openwith-gui` works for the GUI. (The cask was named `openwith` before v0.5.2.)
 
 ### GUI smoke-test checklist
