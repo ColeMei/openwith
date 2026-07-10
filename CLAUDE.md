@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-openwith is a macOS-only CLI tool (Rust) that manages file extension associations ("Open With" defaults) and URL scheme handlers. It scans installed apps, queries/sets defaults via native macOS Launch Services APIs. Has both a ratatui-based TUI and non-interactive CLI subcommands. Supports exporting/importing associations as TOML for dotfile portability.
+openwith is a macOS-only tool (Rust) that manages file extension associations ("Open With" defaults) and URL scheme handlers. It scans installed apps, queries/sets defaults via native macOS Launch Services APIs. Ships as a CLI (with a ratatui TUI) plus a native Tauri GUI, all sharing `openwith-core`. Supports exporting/importing associations as TOML for dotfile portability.
 
 ## Build & Run
 
@@ -26,11 +26,18 @@ cargo test                         # run tests
 cargo clippy                       # lint checks
 ```
 
-Since `openwith-cli` is the only binary in the workspace, plain `cargo run -- <args>` also works.
+GUI (Tauri v2; run from `crates/openwith-gui/`):
+
+```bash
+npm install                        # once, installs frontend deps + tauri CLI
+npm run tauri dev                  # hot-reloading dev app
+npm run tauri build                # unsigned .app/.dmg under <repo>/target/release/bundle/
+npm run build                      # tsc + vite build only (frontend typecheck)
+```
 
 ## Architecture
 
-Cargo workspace with two members: `openwith-core` (library) and `openwith-cli` (binary crate `openwith`). A future `openwith-gui` (Tauri) crate is planned per `~/.claude/plans/use-the-claude-design-mcp-gentle-kay.md`.
+Cargo workspace with three members: `openwith-core` (library), `openwith-cli` (binary crate `openwith`), and `openwith-gui/src-tauri` (Tauri v2 app). GUI phasing follows `~/.claude/plans/use-the-claude-design-mcp-gentle-kay.md`.
 
 ```
 crates/
@@ -53,6 +60,15 @@ crates/
       export.rs          -- `openwith export` dump associations + schemes to TOML
       import.rs          -- `openwith import` apply TOML (idempotent, `--dry-run`)
       tui.rs             -- ratatui TUI: Extensions + Apps tabs, loading screen, AppPicker + Help
+  openwith-gui/         -- Tauri v2 GUI ("OpenWith.app")
+    src/                -- vanilla TS + Vite frontend (no framework)
+      main.ts           -- render functions + delegated event handling
+      state.ts          -- app state, derived views, settings persistence (localStorage)
+      api.ts            -- typed invoke() wrappers mirroring the Rust DTOs
+      styles.css        -- design-prototype palette, light + dark via prefers-color-scheme
+    src-tauri/src/
+      commands.rs       -- #[tauri::command] wrappers over openwith-core (snapshot, set, export/import, detect_cli)
+      lib.rs            -- tauri Builder + plugin registration (dialog, opener)
 ```
 
 ### Key patterns
@@ -67,6 +83,8 @@ crates/
 - Apps browser uses a master-detail layout: left pane is app list, right pane shows details (supported extensions, defaults).
 - Loading screen enters TUI alternate screen immediately, shows ASCII logo + spinner while scanning in background.
 - Export/import uses serde + toml crate with `BTreeMap<String, String>` for sorted, human-readable TOML; import validates apps exist and skips associations already set correctly.
+- GUI: single `get_snapshot` command returns apps + associations (with sibling-UTI conflict data) + contested schemes in one call; the frontend is a plain render-to-innerHTML loop with `data-action` event delegation, no framework. Versions are lockstep: `tauri.conf.json` omits `version` so the app version comes from `workspace.package` in the root Cargo.toml.
+- GUI settings live in localStorage (`openwith.settings`); only controls whose behavior actually works are rendered — no stub toggles for unshipped phases.
 
 ## Runtime dependencies
 
@@ -97,23 +115,31 @@ crates/
 | `0.x.0` (minor) | New features, notable behavior changes | v0.2.0 |
 | `x.0.0` (major) | Reserved — standalone app, public distribution, breaking changes | future |
 
-When releasing, also update `version` in `Cargo.toml` to match the tag.
+When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) to match the tag — CLI and GUI share this single version (lockstep). Also keep `crates/openwith-gui/package.json` in sync (cosmetic only; the bundle version comes from Cargo).
 
 ### Release process
 
 1. Ensure all changes are committed and pushed.
-2. Update `Cargo.toml` version if not already done.
+2. Update the workspace version in `Cargo.toml` if not already done.
 3. Run validation:
    ```bash
    cargo fmt --check
    cargo check
    cargo clippy --all-targets --all-features -- -D warnings
    cargo test
+   (cd crates/openwith-gui && npm run build)
    ```
 4. Create a git tag: `git tag vX.Y.Z`
 5. Push the tag: `git push origin vX.Y.Z`
 6. Create GitHub release with `gh release create` using the appropriate template below.
-7. Bump the Homebrew formula in `ColeMei/homebrew-openwith` (url + sha256 of the new tag tarball). Since the workspace conversion, the formula's `install` block must use `system "cargo", "install", *std_cargo_args, "--path", "crates/openwith-cli"` (the repo root is now a virtual workspace with no installable package at `.`).
+7. Build the GUI bundle and attach it to the release:
+   ```bash
+   (cd crates/openwith-gui && npm run tauri build)
+   gh release upload vX.Y.Z target/release/bundle/dmg/OpenWith_X.Y.Z_aarch64.dmg
+   ```
+   The app is unsigned (no Apple Developer ID yet) — first launch needs `xattr -dr com.apple.quarantine /Applications/OpenWith.app` or right-click → Open.
+8. Bump the Homebrew formula in `ColeMei/homebrew-openwith` (url + sha256 of the new tag tarball). Since the workspace conversion, the formula's `install` block must use `system "cargo", "install", *std_cargo_args, "--path", "crates/openwith-cli"` (the repo root is now a virtual workspace with no installable package at `.`).
+9. Update the `openwith` cask in `ColeMei/homebrew-openwith` (url + sha256 of the .dmg release asset) with the quarantine caveat, so `brew install --cask` works for the GUI.
 
 ### Release templates
 

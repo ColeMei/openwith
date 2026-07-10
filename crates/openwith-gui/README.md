@@ -13,7 +13,7 @@ npm run tauri dev  # hot-reloading dev app
 ## Build
 
 ```bash
-npm run tauri build   # unsigned .app + .dmg under src-tauri/target/release/bundle/
+npm run tauri build   # unsigned .app + .dmg under <repo>/target/release/bundle/
 ```
 
 The app version comes from the workspace `Cargo.toml` (`tauri.conf.json` deliberately
