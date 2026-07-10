@@ -28,12 +28,19 @@ pub fn run() {
                 .build(),
         )
         .manage(commands::AppsCache::default())
-        .manage(tray::TrayState::default())
-        .on_window_event(|window, event| {
+        .on_window_event(|window, event| match (window.label(), event) {
             // The popover behaves like a menu: clicking anywhere else closes it.
-            if window.label() == "menubar" && matches!(event, tauri::WindowEvent::Focused(false)) {
+            ("menubar", tauri::WindowEvent::Focused(false)) => {
                 let _ = window.hide();
             }
+            // Standard macOS behavior: the close button hides the window, the
+            // app keeps running (⌘Q quits). Destroying it would make the app
+            // unreopenable — the hidden popover window keeps it alive.
+            ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::detect_cli,
@@ -51,7 +58,14 @@ pub fn run() {
             commands::show_main_window,
             commands::quit_app,
             commands::set_tray_enabled,
+            commands::set_dock_visible,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Dock icon clicked with no visible window: reopen main.
+            if let tauri::RunEvent::Reopen { .. } = event {
+                commands::show_main(app);
+            }
+        });
 }
