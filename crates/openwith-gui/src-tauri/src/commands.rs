@@ -312,7 +312,20 @@ pub fn set_dock_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     } else {
         tauri::ActivationPolicy::Accessory
     };
-    app.set_activation_policy(policy).map_err(|e| e.to_string())
+    // Switching Regular → Accessory deactivates the app and orders its
+    // windows out, so the toggle would appear to close the main window.
+    // Re-show and refocus it if it was visible before the switch.
+    let main_was_visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    app.set_activation_policy(policy)
+        .map_err(|e| e.to_string())?;
+    if main_was_visible && let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
