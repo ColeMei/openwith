@@ -29,11 +29,13 @@ export interface SnapshotDto {
 
 export interface SetResultDto {
   key: string;
+  kind: "set" | "set_scheme";
   app_name: string;
   bundle_id: string;
   previous_app_name: string | null;
   unchanged: boolean;
   siblings: string[];
+  timestamp: number;
 }
 
 export interface ExportResultDto {
@@ -60,14 +62,36 @@ export interface ImportPreviewDto {
   skipped: ImportSkippedDto[];
 }
 
+export interface ExtMatchDto {
+  ext: string;
+  app_name: string | null;
+  bundle_id: string | null;
+}
+
+export interface PickerAppDto {
+  name: string;
+  bundle_id: string;
+  current: boolean;
+}
+
+export interface RecentChangeDto {
+  kind: "set" | "set_scheme";
+  key: string;
+  app_name: string;
+  old_bundle_id: string | null;
+  timestamp: number;
+}
+
 export interface HistoryEventDto {
   kind: "set" | "set_scheme" | "export" | "import";
   key: string;
-  old: string | null;
-  new: string | null;
+  old_name: string | null;
+  new_name: string | null;
   detail: string | null;
   timestamp: number;
   source: string;
+  undone: boolean;
+  is_undo: boolean;
 }
 
 export const api = {
@@ -84,4 +108,16 @@ export const api = {
     invoke<ImportPreviewDto>("import_toml", { path, dryRun }),
   getHistory: (limit: number) =>
     invoke<HistoryEventDto[]>("get_history", { limit }),
+  searchExtensions: (query: string) =>
+    invoke<ExtMatchDto[]>("search_extensions", { query }),
+  getExtPicker: (ext: string) =>
+    invoke<PickerAppDto[]>("get_ext_picker", { ext }),
+  getRecentChanges: (limit: number) =>
+    invoke<RecentChangeDto[]>("get_recent_changes", { limit }),
+  undoChange: (kind: string, key: string, timestamp: number) =>
+    invoke<SetResultDto>("undo_change", { kind, key, timestamp }),
+  showMainWindow: () => invoke<void>("show_main_window"),
+  quitApp: () => invoke<void>("quit_app"),
+  setTrayEnabled: (enabled: boolean) =>
+    invoke<void>("set_tray_enabled", { enabled }),
 };

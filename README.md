@@ -75,6 +75,8 @@ openwith set md Typora      # Set Typora as default for .md
 openwith set md abnerworks.Typora  # Bundle IDs work too
 openwith current -s http    # Show the default browser
 openwith set -s http Firefox      # Set the default browser
+openwith history            # Recent changes (recorded by CLI and GUI alike)
+openwith undo               # Revert the most recent change
 ```
 
 Run `openwith --help` to see all commands.

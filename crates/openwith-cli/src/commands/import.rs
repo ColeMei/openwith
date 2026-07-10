@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 
+use openwith_core::history::{self, HistoryEvent};
 use openwith_core::{config, scanner, uti};
 
 pub fn run(path: &str, dry_run: bool) -> Result<()> {
@@ -23,6 +24,27 @@ pub fn run(path: &str, dry_run: bool) -> Result<()> {
         eprintln!("Applying {} associations...", total);
     }
     let result = config::import_associations(&cfg, &apps, dry_run);
+
+    if !dry_run {
+        let file_name = std::path::Path::new(path)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+        let _ = history::record(HistoryEvent {
+            kind: "import".into(),
+            key: file_name,
+            old: None,
+            new: None,
+            detail: Some(format!(
+                "{} applied · {} skipped",
+                result.applied.len(),
+                result.unchanged.len() + result.skipped.len()
+            )),
+            timestamp: history::now_secs(),
+            source: "cli".into(),
+            ..Default::default()
+        });
+    }
 
     // Warn about extensions changed as a side effect of a shared UTI,
     // unless they are themselves part of the import.

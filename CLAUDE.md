@@ -21,6 +21,8 @@ cargo run -p openwith-cli -- set -s http Firefox   # set default browser
 cargo run -p openwith-cli -- export -o out.toml    # export associations to TOML
 cargo run -p openwith-cli -- import --dry-run out.toml  # preview an import
 cargo run -p openwith-cli -- import out.toml       # import associations from TOML
+cargo run -p openwith-cli -- history               # recent changes from CLI + GUI (--json)
+cargo run -p openwith-cli -- undo                  # revert the most recent change
 cargo check                        # quick compile check
 cargo test                         # run tests
 cargo clippy                       # lint checks
@@ -60,16 +62,21 @@ crates/
       set.rs             -- `openwith set <ext> <app>` with name/bundle-ID resolution
       export.rs          -- `openwith export` dump associations + schemes to TOML
       import.rs          -- `openwith import` apply TOML (idempotent, `--dry-run`)
+      history.rs         -- `openwith history` list recent events (relative dates, --json)
+      undo.rs            -- `openwith undo` revert last set (drift check, --force)
       tui.rs             -- ratatui TUI: Extensions + Apps tabs, loading screen, AppPicker + Help
   openwith-gui/         -- Tauri v2 GUI ("OpenWith.app")
     src/                -- vanilla TS + Vite frontend (no framework)
-      main.ts           -- render functions + delegated event handling
+      main.ts           -- entry: dispatches to app.ts (main window) or menubar.ts by window label
+      app.ts            -- main window render functions + delegated event handling
+      menubar.ts        -- tray popover (prototype 1d/2b): ext lookup, Recent Changes + Undo
       state.ts          -- app state, derived views, settings persistence (localStorage)
       api.ts            -- typed invoke() wrappers mirroring the Rust DTOs
       styles.css        -- design-prototype palette, light + dark via prefers-color-scheme
     src-tauri/src/
-      commands.rs       -- #[tauri::command] wrappers over openwith-core (snapshot, set, export/import, detect_cli)
-      lib.rs            -- tauri Builder + plugin registration (dialog, opener)
+      commands.rs       -- #[tauri::command] wrappers over openwith-core + apps cache
+      tray.rs           -- tray icon lifecycle + popover positioning (plugin-positioner)
+      lib.rs            -- tauri Builder, plugins (dialog, opener, positioner, autostart, global-shortcut ⌥⌘O)
 ```
 
 ### Key patterns
@@ -85,7 +92,8 @@ crates/
 - Loading screen enters TUI alternate screen immediately, shows ASCII logo + spinner while scanning in background.
 - Export/import uses serde + toml crate with `BTreeMap<String, String>` for sorted, human-readable TOML; import validates apps exist and skips associations already set correctly.
 - GUI: single `get_snapshot` command returns apps + associations (with sibling-UTI conflict data) + contested schemes in one call; the frontend is a plain render-to-innerHTML loop with `data-action` event delegation, no framework. Versions are lockstep: `tauri.conf.json` omits `version` so the app version comes from `workspace.package` in the root Cargo.toml.
-- `openwith-core::history` is the shared change log (capped at 500 events, best-effort writes that never fail the triggering change). The GUI records set/export/import events and renders export/import in the Profiles HISTORY panel; CLI recording plus `openwith history`/`openwith undo` land in Phase 2 (v0.5.1).
+- `openwith-core::history` is the shared change log (capped at 500 events, best-effort writes that never fail the triggering change). CLI, GUI, and core import all record into it; the GUI Profiles panel shows export/import events, the menu-bar popover shows set events with per-entry Undo, and `openwith history`/`openwith undo` read the same file.
+- The GUI is two windows off one Vite bundle: `main` and a hidden transparent `menubar` popover (requires `macOSPrivateApi: true`). The popover hides on blur and is toggled by the tray icon or ⌥⌘O. A backend `AppsCache` (refreshed by `get_snapshot`) keeps popover lookups instant.
 - GUI settings live in localStorage (`openwith.settings`). The Settings pane mirrors the design prototype's full layout; controls whose feature ships in a later 0.5.x phase (launch at login, menu bar) render disabled with an "arrives in v0.5.1" note rather than as silently-dead toggles.
 - GUI visual source of truth is the claude.design prototype "OpenWith GUI Explorations" (project 14225854-984c-4e5c-8d2b-8c9ce38a1624), variants 1c (light) / 2a (dark): glyph tab icons (⌸ ⊞ ⤴ ⇅ — never emoji), 2-char initial chips (20px rows / 26px app list / 52px detail), fixed mid accent oklch(0.62 0.14 45) for tab underline + toggles, inverted toast. Check UI changes against it before shipping.
 

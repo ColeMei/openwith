@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use openwith_core::history::{self, HistoryEvent};
 use openwith_core::{config, scanner};
 
 pub fn run(output: Option<&str>) -> Result<()> {
@@ -13,6 +14,24 @@ pub fn run(output: Option<&str>) -> Result<()> {
     match output {
         Some(path) => {
             std::fs::write(path, &toml_str)?;
+            let file_name = std::path::Path::new(path)
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.to_string());
+            let _ = history::record(HistoryEvent {
+                kind: "export".into(),
+                key: file_name,
+                old: None,
+                new: None,
+                detail: Some(format!(
+                    "{} extensions · {} schemes",
+                    cfg.associations.len(),
+                    cfg.schemes.len()
+                )),
+                timestamp: history::now_secs(),
+                source: "cli".into(),
+                ..Default::default()
+            });
             println!(
                 "Exported {} associations and {} scheme handlers to {}",
                 cfg.associations.len(),

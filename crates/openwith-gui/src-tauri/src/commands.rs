@@ -1,11 +1,38 @@
+use std::sync::{Arc, Mutex};
+
 use serde::Serialize;
+use tauri::{AppHandle, Manager, State};
 
 use openwith_core::history::{self, HistoryEvent};
+use openwith_core::types::AppInfo;
 use openwith_core::{config, launchservices, listing, scanner, uti};
+
+use crate::tray;
 
 /// History writes are best-effort — never fail the change that triggered them.
 fn record_history(event: HistoryEvent) {
     let _ = history::record(event);
+}
+
+/// Scanned apps, shared between the main window and the menu-bar popover so
+/// popover lookups don't pay the multi-second scan.
+#[derive(Default)]
+pub struct AppsCache(Mutex<Option<Arc<Vec<AppInfo>>>>);
+
+fn cached_apps(cache: &State<'_, AppsCache>) -> Result<Arc<Vec<AppInfo>>, String> {
+    let mut slot = cache.0.lock().expect("apps cache poisoned");
+    if let Some(apps) = slot.as_ref() {
+        return Ok(Arc::clone(apps));
+    }
+    let apps = Arc::new(scanner::scan_all_apps().map_err(|e| e.to_string())?);
+    *slot = Some(Arc::clone(&apps));
+    Ok(apps)
+}
+
+fn refresh_apps(cache: &State<'_, AppsCache>) -> Result<Arc<Vec<AppInfo>>, String> {
+    let apps = Arc::new(scanner::scan_all_apps().map_err(|e| e.to_string())?);
+    *cache.0.lock().expect("apps cache poisoned") = Some(Arc::clone(&apps));
+    Ok(apps)
 }
 
 #[derive(Serialize)]
@@ -42,11 +69,15 @@ pub struct SnapshotDto {
 #[derive(Serialize)]
 pub struct SetResultDto {
     pub key: String,
+    pub kind: String,
     pub app_name: String,
     pub bundle_id: String,
     pub previous_app_name: Option<String>,
     pub unchanged: bool,
     pub siblings: Vec<String>,
+    /// Timestamp of the recorded history event; lets the frontend undo this
+    /// exact change (0 when nothing was recorded).
+    pub timestamp: u64,
 }
 
 #[derive(Serialize)]
@@ -78,29 +109,227 @@ pub struct ImportSkippedDto {
 }
 
 #[derive(Serialize)]
-pub struct HistoryEventDto {
+pub struct ExtMatchDto {
+    pub ext: String,
+    pub app_name: Option<String>,
+    pub bundle_id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct PickerAppDto {
+    pub name: String,
+    pub bundle_id: String,
+    pub current: bool,
+}
+
+#[derive(Serialize)]
+pub struct RecentChangeDto {
     pub kind: String,
     pub key: String,
-    pub old: Option<String>,
-    pub new: Option<String>,
-    pub detail: Option<String>,
+    pub app_name: String,
+    pub old_bundle_id: Option<String>,
     pub timestamp: u64,
-    pub source: String,
+}
+
+/// Prefix-match known extensions for the menu-bar popover, newest defaults
+/// resolved live (cheap: one Launch Services query per shown row).
+#[tauri::command]
+pub fn search_extensions(
+    query: String,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<ExtMatchDto>, String> {
+    let q = query.trim().trim_start_matches('.').to_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let apps = cached_apps(&cache)?;
+    let mut exts = scanner::all_extensions(&apps);
+    exts.retain(|e| e.starts_with(&q));
+    exts.sort();
+    exts.truncate(3);
+
+    Ok(exts
+        .into_iter()
+        .map(|ext| {
+            let bundle_id = launchservices::query_default_bundle_id(&ext).ok().flatten();
+            let app_name = bundle_id.as_ref().map(|b| scanner::resolve_name(&apps, b));
+            ExtMatchDto {
+                ext,
+                app_name,
+                bundle_id,
+            }
+        })
+        .collect())
+}
+
+/// Apps offered in the popover's picker for one extension: declared
+/// supporters, or every app when nothing declares it.
+#[tauri::command]
+pub fn get_ext_picker(
+    ext: String,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<PickerAppDto>, String> {
+    let ext = ext.trim_start_matches('.').to_lowercase();
+    let apps = cached_apps(&cache)?;
+    let current = launchservices::query_default_bundle_id(&ext).ok().flatten();
+
+    let mut source: Vec<&AppInfo> = apps
+        .iter()
+        .filter(|a| a.extensions.contains(&ext))
+        .collect();
+    if source.is_empty() {
+        source = apps.iter().collect();
+    }
+    source.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(source
+        .into_iter()
+        .map(|a| PickerAppDto {
+            name: a.name.clone(),
+            bundle_id: a.bundle_id.clone(),
+            current: current
+                .as_deref()
+                .is_some_and(|c| c.eq_ignore_ascii_case(&a.bundle_id)),
+        })
+        .collect())
+}
+
+/// Recent set events for the popover's Recent Changes list, names resolved.
+/// Undo-stack view: undone changes and the reverts themselves are hidden.
+#[tauri::command]
+pub fn get_recent_changes(
+    limit: usize,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<RecentChangeDto>, String> {
+    let apps = cached_apps(&cache)?;
+    let events = history::recent(100).map_err(|e| e.to_string())?;
+    Ok(events
+        .into_iter()
+        .filter(|e| matches!(e.kind.as_str(), "set" | "set_scheme") && !e.undone && !e.is_undo)
+        .take(limit)
+        .map(|e| RecentChangeDto {
+            kind: e.kind,
+            key: e.key,
+            app_name: e
+                .new
+                .as_ref()
+                .map(|b| scanner::resolve_name(&apps, b))
+                .unwrap_or_else(|| "?".into()),
+            old_bundle_id: e.old,
+            timestamp: e.timestamp,
+        })
+        .collect())
+}
+
+/// Undo one recorded change: restore the previous handler, mark the original
+/// event consumed, and record the revert as an is_undo event.
+#[tauri::command]
+pub fn undo_change(
+    kind: String,
+    key: String,
+    timestamp: u64,
+    cache: State<'_, AppsCache>,
+) -> Result<SetResultDto, String> {
+    let apps = cached_apps(&cache)?;
+    let events = history::recent(500).map_err(|e| e.to_string())?;
+    let event = events
+        .iter()
+        .find(|e| e.kind == kind && e.key == key && e.timestamp == timestamp && e.undoable())
+        .ok_or("that change is no longer undoable")?;
+    let old = event.old.clone().expect("undoable implies old");
+    let new = event.new.clone().unwrap_or_default();
+
+    let siblings = if kind == "set_scheme" {
+        let scheme = key.trim_end_matches("://");
+        launchservices::set_default_scheme_handler(&old, scheme).map_err(|e| e.to_string())?;
+        Vec::new()
+    } else {
+        let ext = key.trim_start_matches('.');
+        let uti_str = uti::uti_for_extension(ext).map_err(|e| e.to_string())?;
+        launchservices::set_default(&old, &uti_str).map_err(|e| e.to_string())?;
+        uti::extensions_sharing_uti(ext, &uti_str, &scanner::all_extensions(&apps))
+    };
+
+    let _ = history::mark_undone(&kind, &key, timestamp, event.new.as_deref());
+    let now = history::now_secs();
+    record_history(HistoryEvent {
+        kind: kind.clone(),
+        key: key.clone(),
+        old: event.new.clone(),
+        new: Some(old.clone()),
+        timestamp: now,
+        source: "gui".into(),
+        is_undo: true,
+        ..Default::default()
+    });
+
+    Ok(SetResultDto {
+        key,
+        kind,
+        app_name: scanner::resolve_name(&apps, &old),
+        bundle_id: old,
+        previous_app_name: Some(scanner::resolve_name(&apps, &new)),
+        unchanged: false,
+        siblings,
+        timestamp: now,
+    })
 }
 
 #[tauri::command]
-pub fn get_history(limit: usize) -> Result<Vec<HistoryEventDto>, String> {
+pub fn show_main_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    if let Some(popover) = app.get_webview_window("menubar") {
+        let _ = popover.hide();
+    }
+}
+
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+pub fn set_tray_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    tray::set_enabled(&app, enabled).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+pub struct HistoryEventDto {
+    pub kind: String,
+    pub key: String,
+    pub old_name: Option<String>,
+    pub new_name: Option<String>,
+    pub detail: Option<String>,
+    pub timestamp: u64,
+    pub source: String,
+    pub undone: bool,
+    pub is_undo: bool,
+}
+
+/// Full ledger for the Profiles HISTORY panel, bundle IDs resolved to names.
+#[tauri::command]
+pub fn get_history(
+    limit: usize,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<HistoryEventDto>, String> {
+    let apps = cached_apps(&cache)?;
     let events = history::recent(limit).map_err(|e| e.to_string())?;
     Ok(events
         .into_iter()
         .map(|e| HistoryEventDto {
             kind: e.kind,
             key: e.key,
-            old: e.old,
-            new: e.new,
+            old_name: e.old.as_ref().map(|b| scanner::resolve_name(&apps, b)),
+            new_name: e.new.as_ref().map(|b| scanner::resolve_name(&apps, b)),
             detail: e.detail,
             timestamp: e.timestamp,
             source: e.source,
+            undone: e.undone,
+            is_undo: e.is_undo,
         })
         .collect())
 }
@@ -140,8 +369,8 @@ pub fn relaunch_finder() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_snapshot() -> Result<SnapshotDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn get_snapshot(cache: State<'_, AppsCache>) -> Result<SnapshotDto, String> {
+    let apps = refresh_apps(&cache)?;
 
     let app_dtos = apps
         .iter()
@@ -187,8 +416,12 @@ pub fn get_snapshot() -> Result<SnapshotDto, String> {
 }
 
 #[tauri::command]
-pub fn set_default(ext: String, app: String) -> Result<SetResultDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn set_default(
+    ext: String,
+    app: String,
+    cache: State<'_, AppsCache>,
+) -> Result<SetResultDto, String> {
+    let apps = cached_apps(&cache)?;
     let (bundle_id, display_name) =
         scanner::resolve_app_or_bundle_id(&apps, &app).map_err(|e| e.to_string())?;
 
@@ -202,24 +435,27 @@ pub fn set_default(ext: String, app: String) -> Result<SetResultDto, String> {
     {
         return Ok(SetResultDto {
             key: format!(".{ext}"),
+            kind: "set".into(),
             app_name: display_name,
             bundle_id,
             previous_app_name: None,
             unchanged: true,
             siblings: Vec::new(),
+            timestamp: 0,
         });
     }
 
     launchservices::set_default(&bundle_id, &uti_str).map_err(|e| e.to_string())?;
 
+    let timestamp = history::now_secs();
     record_history(HistoryEvent {
         kind: "set".into(),
         key: format!(".{ext}"),
         old: previous.clone(),
         new: Some(bundle_id.clone()),
-        detail: None,
-        timestamp: history::now_secs(),
+        timestamp,
         source: "gui".into(),
+        ..Default::default()
     });
 
     let previous_app_name = previous.map(|p| scanner::resolve_name(&apps, &p));
@@ -229,17 +465,23 @@ pub fn set_default(ext: String, app: String) -> Result<SetResultDto, String> {
 
     Ok(SetResultDto {
         key: format!(".{ext}"),
+        kind: "set".into(),
         app_name: display_name,
         bundle_id,
         previous_app_name,
         unchanged: false,
         siblings,
+        timestamp,
     })
 }
 
 #[tauri::command]
-pub fn set_scheme_default(scheme: String, app: String) -> Result<SetResultDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn set_scheme_default(
+    scheme: String,
+    app: String,
+    cache: State<'_, AppsCache>,
+) -> Result<SetResultDto, String> {
+    let apps = cached_apps(&cache)?;
     let (bundle_id, display_name) =
         scanner::resolve_app_or_bundle_id(&apps, &app).map_err(|e| e.to_string())?;
 
@@ -257,41 +499,49 @@ pub fn set_scheme_default(scheme: String, app: String) -> Result<SetResultDto, S
     {
         return Ok(SetResultDto {
             key: format!("{scheme}://"),
+            kind: "set_scheme".into(),
             app_name: display_name,
             bundle_id,
             previous_app_name: None,
             unchanged: true,
             siblings: Vec::new(),
+            timestamp: 0,
         });
     }
 
     launchservices::set_default_scheme_handler(&bundle_id, &scheme).map_err(|e| e.to_string())?;
 
+    let timestamp = history::now_secs();
     record_history(HistoryEvent {
         kind: "set_scheme".into(),
         key: format!("{scheme}://"),
         old: previous.clone(),
         new: Some(bundle_id.clone()),
-        detail: None,
-        timestamp: history::now_secs(),
+        timestamp,
         source: "gui".into(),
+        ..Default::default()
     });
 
     let previous_app_name = previous.map(|p| scanner::resolve_name(&apps, &p));
 
     Ok(SetResultDto {
         key: format!("{scheme}://"),
+        kind: "set_scheme".into(),
         app_name: display_name,
         bundle_id,
         previous_app_name,
         unchanged: false,
         siblings: Vec::new(),
+        timestamp,
     })
 }
 
 #[tauri::command]
-pub fn export_toml(path: Option<String>) -> Result<ExportResultDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn export_toml(
+    path: Option<String>,
+    cache: State<'_, AppsCache>,
+) -> Result<ExportResultDto, String> {
+    let apps = cached_apps(&cache)?;
     let (cfg, display_names) = config::export_associations(&apps).map_err(|e| e.to_string())?;
     let toml_str = config::to_toml(&cfg, &display_names).map_err(|e| e.to_string())?;
 
@@ -313,6 +563,7 @@ pub fn export_toml(path: Option<String>) -> Result<ExportResultDto, String> {
             )),
             timestamp: history::now_secs(),
             source: "gui".into(),
+            ..Default::default()
         });
     }
 
@@ -324,11 +575,15 @@ pub fn export_toml(path: Option<String>) -> Result<ExportResultDto, String> {
 }
 
 #[tauri::command]
-pub fn import_toml(path: String, dry_run: bool) -> Result<ImportPreviewDto, String> {
+pub fn import_toml(
+    path: String,
+    dry_run: bool,
+    cache: State<'_, AppsCache>,
+) -> Result<ImportPreviewDto, String> {
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let cfg = config::from_toml(&content).map_err(|e| e.to_string())?;
 
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+    let apps = cached_apps(&cache)?;
     let result = config::import_associations(&cfg, &apps, dry_run);
 
     if !dry_run {
@@ -348,6 +603,7 @@ pub fn import_toml(path: String, dry_run: bool) -> Result<ImportPreviewDto, Stri
             )),
             timestamp: history::now_secs(),
             source: "gui".into(),
+            ..Default::default()
         });
     }
 

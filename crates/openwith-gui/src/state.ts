@@ -38,9 +38,8 @@ export interface UpdateStatus {
 }
 
 /** User preferences, persisted to localStorage. Mirrors the prototype's
- * Settings pane. `launchAtLogin` and `showMenuBar` render disabled until the
- * menu bar panel lands in v0.5.1 — they're stored so flipping them then
- * doesn't lose intent. */
+ * Settings pane. `launchAtLogin` mirrors the autostart plugin's real state
+ * (synced at bootstrap); `showMenuBar` drives tray creation. */
 export interface SettingsState {
   launchAtLogin: boolean;
   showMenuBar: boolean;
@@ -57,7 +56,7 @@ const SETTINGS_KEY = "openwith.settings";
 
 const DEFAULT_SETTINGS: SettingsState = {
   launchAtLogin: false,
-  showMenuBar: false,
+  showMenuBar: true,
   confirmBeforeApplying: false,
   warnUtiConflicts: true,
   showBundleIds: true,

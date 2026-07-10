@@ -21,6 +21,8 @@ MANAGE
     openwith set <ext> <app>    Set the default app (name or bundle ID)
     openwith current -s http    Show the handler for a URL scheme
     openwith set -s http <app>  Set the handler for a URL scheme
+    openwith history            Show recent changes (--json for scripts)
+    openwith undo               Revert the most recent change
 
 CONFIG
     openwith export         Export current associations to TOML
@@ -99,6 +101,21 @@ pub enum Commands {
     },
     /// Launch interactive TUI (apps view)
     Apps,
+    /// Show recent default changes recorded by the CLI and GUI
+    History {
+        /// Maximum number of events to show
+        #[arg(short = 'n', long, default_value_t = 20)]
+        limit: usize,
+        /// Print JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revert the most recent default change
+    Undo {
+        /// Revert even if the default has changed since the recorded event
+        #[arg(long)]
+        force: bool,
+    },
     /// Export current file associations to TOML
     Export {
         /// Output file path (default: stdout)

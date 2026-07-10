@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// Keep the log bounded; older events fall off the front.
 const MAX_EVENTS: usize = 500;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct HistoryEvent {
     /// "set" | "set_scheme" | "export" | "import"
     pub kind: String,
@@ -32,6 +32,24 @@ pub struct HistoryEvent {
     pub timestamp: u64,
     /// "cli" | "gui" | "import"
     pub source: String,
+    /// This change was later reverted via Undo. The ledger keeps the row;
+    /// undo-stack views (popover Recent Changes) hide it.
+    #[serde(default)]
+    pub undone: bool,
+    /// This event is itself an Undo (the compensating revert).
+    #[serde(default)]
+    pub is_undo: bool,
+}
+
+impl HistoryEvent {
+    /// A live, revertible change: has a previous handler and hasn't been
+    /// undone, and isn't itself a revert.
+    pub fn undoable(&self) -> bool {
+        matches!(self.kind.as_str(), "set" | "set_scheme")
+            && self.old.is_some()
+            && !self.undone
+            && !self.is_undo
+    }
 }
 
 pub fn now_secs() -> u64 {
@@ -87,6 +105,37 @@ pub fn recent_at(path: &Path, limit: usize) -> Result<Vec<HistoryEvent>> {
     Ok(events)
 }
 
+/// Flag the newest matching *undoable* event as undone. Matching includes the
+/// new-handler value and skips consumed events: second-resolution timestamps
+/// can collide (a set and its revert within one second), and flagging the
+/// wrong twin would leave the undone event eternally re-undoable.
+/// No-op if the event has already fallen off the capped log.
+pub fn mark_undone(kind: &str, key: &str, timestamp: u64, new: Option<&str>) -> Result<()> {
+    mark_undone_at(&history_path()?, kind, key, timestamp, new)
+}
+
+pub fn mark_undone_at(
+    path: &Path,
+    kind: &str,
+    key: &str,
+    timestamp: u64,
+    new: Option<&str>,
+) -> Result<()> {
+    let mut events = load(path);
+    if let Some(event) = events.iter_mut().rev().find(|e| {
+        e.kind == kind
+            && e.key == key
+            && e.timestamp == timestamp
+            && e.new.as_deref() == new
+            && e.undoable()
+    }) {
+        event.undone = true;
+        let json = serde_json::to_string_pretty(&events)?;
+        std::fs::write(path, json).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,11 +151,9 @@ mod tests {
         HistoryEvent {
             kind: kind.into(),
             key: key.into(),
-            old: None,
-            new: None,
-            detail: None,
             timestamp: ts,
             source: "gui".into(),
+            ..Default::default()
         }
     }
 
@@ -141,6 +188,55 @@ mod tests {
         assert!(recent_at(&path, 5).unwrap().is_empty());
         record_at(&path, event("import", "a.toml", 3)).unwrap();
         assert_eq!(recent_at(&path, 5).unwrap().len(), 1);
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn mark_undone_flags_the_matching_event() {
+        let path = temp_log("undone");
+        let _ = std::fs::remove_file(&path);
+
+        let mut set = event("set", ".md", 10);
+        set.old = Some("a".into());
+        set.new = Some("b".into());
+        record_at(&path, set).unwrap();
+        record_at(&path, event("export", "x.toml", 11)).unwrap();
+
+        assert!(recent_at(&path, 5).unwrap()[1].undoable());
+        mark_undone_at(&path, "set", ".md", 10, Some("b")).unwrap();
+
+        let events = recent_at(&path, 5).unwrap();
+        assert!(events[1].undone);
+        assert!(!events[1].undoable());
+        // unknown event → silent no-op
+        mark_undone_at(&path, "set", ".zzz", 99, None).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn mark_undone_skips_consumed_twins_on_timestamp_collision() {
+        let path = temp_log("collision");
+        let _ = std::fs::remove_file(&path);
+
+        // A set and another event in the same second, the newer one already
+        // undone — marking must flag the still-active older twin.
+        let mut a = event("set", ".md", 10);
+        a.old = Some("typora".into());
+        a.new = Some("textedit".into());
+        let mut b = event("set", ".md", 10);
+        b.old = Some("textedit".into());
+        b.new = Some("typora".into());
+        b.undone = true;
+        record_at(&path, a).unwrap();
+        record_at(&path, b).unwrap();
+
+        mark_undone_at(&path, "set", ".md", 10, Some("textedit")).unwrap();
+
+        let events = recent_at(&path, 5).unwrap();
+        assert!(events.iter().all(|e| e.undone));
+        assert!(events.iter().all(|e| !e.undoable()));
 
         std::fs::remove_file(&path).unwrap();
     }

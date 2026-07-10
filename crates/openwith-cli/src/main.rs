@@ -19,6 +19,12 @@ fn main() -> Result<()> {
         Some(cli::Commands::Apps) => {
             commands::tui::run(commands::tui::InitialView::Apps)?;
         }
+        Some(cli::Commands::History { limit, json }) => {
+            commands::history::run(limit, json)?;
+        }
+        Some(cli::Commands::Undo { force }) => {
+            commands::undo::run(force)?;
+        }
         Some(cli::Commands::Export { output }) => {
             commands::export::run(output.as_deref())?;
         }

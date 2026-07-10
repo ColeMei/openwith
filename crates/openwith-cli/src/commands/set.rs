@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use openwith_core::history::{self, HistoryEvent};
 use openwith_core::types::AppInfo;
 use openwith_core::{launchservices, scanner, uti};
 
@@ -33,6 +34,18 @@ pub fn run(ext: &str, app_name: &str, scheme: bool) -> Result<()> {
 
     // Set default
     launchservices::set_default(&bundle_id, &uti)?;
+
+    // Best-effort: history must never fail the change itself.
+    let _ = history::record(HistoryEvent {
+        kind: "set".into(),
+        key: format!(".{ext}"),
+        old: previous.clone(),
+        new: Some(bundle_id.clone()),
+        detail: None,
+        timestamp: history::now_secs(),
+        source: "cli".into(),
+        ..Default::default()
+    });
 
     let was = previous
         .map(|p| format!(" (was: {})", scanner::resolve_name(&apps, &p)))
@@ -69,6 +82,17 @@ fn run_scheme(apps: &[AppInfo], scheme: &str, bundle_id: &str, display_name: &st
     }
 
     launchservices::set_default_scheme_handler(bundle_id, &scheme)?;
+
+    let _ = history::record(HistoryEvent {
+        kind: "set_scheme".into(),
+        key: format!("{scheme}://"),
+        old: previous.clone(),
+        new: Some(bundle_id.to_string()),
+        detail: None,
+        timestamp: history::now_secs(),
+        source: "cli".into(),
+        ..Default::default()
+    });
 
     let was = previous
         .map(|p| format!(" (was: {})", scanner::resolve_name(apps, &p)))

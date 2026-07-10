@@ -1,0 +1,13 @@
+<!-- Design source for tray-template.png (macOS template image: pure black on
+     transparent; the system recolors it). Regenerate the PNG at 44x44 from
+     this 22x22 design if the glyph changes. Motif: the app logo's
+     document-with-arrow, simplified for menu bar size. -->
+<svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4" y="3.2" width="8.6" height="15.6" rx="2.2"
+        fill="none" stroke="black" stroke-width="1.6"/>
+  <!-- arrow punches through the document's right edge -->
+  <g>
+    <rect x="8.2" y="9.5" width="5.4" height="3" fill="black"/>
+    <polygon points="13.4,6.9 13.4,15.1 19.6,11" fill="black"/>
+  </g>
+</svg>

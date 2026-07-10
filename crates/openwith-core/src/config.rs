@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use super::types::AppInfo;
-use super::{launchservices, listing, scanner, uti};
+use super::{history, launchservices, listing, scanner, uti};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -114,7 +114,7 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
             continue;
         }
 
-        let previous = current.map(|c| scanner::resolve_name(apps, &c));
+        let previous = current.clone().map(|c| scanner::resolve_name(apps, &c));
 
         if dry_run {
             applied.push((ext_key.clone(), display_name, previous));
@@ -123,6 +123,17 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
 
         match launchservices::set_default(&bundle_id, &uti_str) {
             Ok(_) => {
+                // Best-effort: history must never fail the import itself.
+                let _ = history::record(history::HistoryEvent {
+                    kind: "set".into(),
+                    key: ext_key.clone(),
+                    old: current,
+                    new: Some(bundle_id),
+                    detail: None,
+                    timestamp: history::now_secs(),
+                    source: "import".into(),
+                    ..Default::default()
+                });
                 applied.push((ext_key.clone(), display_name, previous));
             }
             Err(e) => {
@@ -154,7 +165,7 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
             continue;
         }
 
-        let previous = current.map(|c| scanner::resolve_name(apps, &c));
+        let previous = current.clone().map(|c| scanner::resolve_name(apps, &c));
 
         if dry_run {
             applied.push((display_key, display_name, previous));
@@ -163,6 +174,16 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
 
         match launchservices::set_default_scheme_handler(&bundle_id, &scheme) {
             Ok(_) => {
+                let _ = history::record(history::HistoryEvent {
+                    kind: "set_scheme".into(),
+                    key: display_key.clone(),
+                    old: current,
+                    new: Some(bundle_id),
+                    detail: None,
+                    timestamp: history::now_secs(),
+                    source: "import".into(),
+                    ..Default::default()
+                });
                 applied.push((display_key, display_name, previous));
             }
             Err(e) => {
