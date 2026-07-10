@@ -122,4 +122,8 @@ export const api = {
     invoke<void>("set_tray_enabled", { enabled }),
   setDockVisible: (visible: boolean) =>
     invoke<void>("set_dock_visible", { visible }),
+  setPopoverPinned: (pinned: boolean) =>
+    invoke<void>("set_popover_pinned", { pinned }),
+  setToggleShortcut: (accelerator: string) =>
+    invoke<void>("set_toggle_shortcut", { accelerator }),
 };

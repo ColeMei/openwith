@@ -1,12 +1,18 @@
 mod commands;
 mod tray;
 
+use std::sync::atomic::Ordering;
+
+use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let toggle_shortcut = Shortcut::new(Some(Modifiers::ALT | Modifiers::SUPER), Code::KeyO);
+    // Default toggle shortcut; a saved custom one replaces it at bootstrap
+    // via the set_toggle_shortcut command. Only one shortcut is ever
+    // registered, so the handler doesn't need to know which combo it is.
+    let default_shortcut = Shortcut::new(Some(Modifiers::ALT | Modifiers::SUPER), Code::KeyO);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -18,20 +24,28 @@ pub fn run() {
         ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcuts([toggle_shortcut])
+                .with_shortcuts([default_shortcut])
                 .expect("valid shortcut")
-                .with_handler(move |app, shortcut, event| {
-                    if shortcut == &toggle_shortcut && event.state == ShortcutState::Pressed {
+                .with_handler(move |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
                         tray::toggle_popover(app);
                     }
                 })
                 .build(),
         )
         .manage(commands::AppsCache::default())
+        .manage(commands::PopoverPinned::default())
         .on_window_event(|window, event| match (window.label(), event) {
-            // The popover behaves like a menu: clicking anywhere else closes it.
+            // The popover behaves like a menu: clicking anywhere else closes
+            // it — unless pinned, which keeps it up for drag-and-drop.
             ("menubar", tauri::WindowEvent::Focused(false)) => {
-                let _ = window.hide();
+                let pinned = window
+                    .state::<commands::PopoverPinned>()
+                    .0
+                    .load(Ordering::Relaxed);
+                if !pinned {
+                    let _ = window.hide();
+                }
             }
             // Standard macOS behavior: the close button hides the window, the
             // app keeps running (⌘Q quits). Destroying it would make the app
@@ -59,6 +73,8 @@ pub fn run() {
             commands::quit_app,
             commands::set_tray_enabled,
             commands::set_dock_visible,
+            commands::set_popover_pinned,
+            commands::set_toggle_shortcut,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

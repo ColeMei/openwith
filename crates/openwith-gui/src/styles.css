@@ -1215,9 +1215,31 @@ html.popover-window body {
 }
 
 .pop-head .hotkey {
-  margin-left: auto;
   font-size: 10.5px;
   color: var(--text-faintest);
+}
+
+.pop-pin {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+  background: var(--pill-bg);
+  border: none;
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: default;
+  font-family: inherit;
+}
+
+.pop-pin:hover {
+  color: var(--accent);
+}
+
+.pop-pin.active {
+  color: var(--accent);
+  background: var(--pop-drop-bg);
 }
 
 .pop-dropzone {

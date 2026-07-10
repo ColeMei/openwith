@@ -1,7 +1,9 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 use openwith_core::history::{self, HistoryEvent};
 use openwith_core::types::AppInfo;
@@ -18,6 +20,28 @@ fn record_history(event: HistoryEvent) {
 /// popover lookups don't pay the multi-second scan.
 #[derive(Default)]
 pub struct AppsCache(Mutex<Option<Arc<Vec<AppInfo>>>>);
+
+/// While pinned the popover survives losing focus, so a file can be dragged
+/// in from Finder (grabbing the file blurs the popover, which normally hides
+/// it). Reset every time the popover is toggled open.
+#[derive(Default)]
+pub struct PopoverPinned(pub AtomicBool);
+
+#[tauri::command]
+pub fn set_popover_pinned(pinned: bool, state: State<'_, PopoverPinned>) {
+    state.0.store(pinned, Ordering::Relaxed);
+}
+
+/// Swap the global shortcut that toggles the popover. Only one toggle
+/// shortcut exists at a time, so replacing means unregistering everything.
+#[tauri::command]
+pub fn set_toggle_shortcut(app: AppHandle, accelerator: String) -> Result<(), String> {
+    let shortcut: Shortcut = accelerator.parse().map_err(|e| format!("{e}"))?;
+    let shortcuts = app.global_shortcut();
+    shortcuts.unregister_all().map_err(|e| e.to_string())?;
+    shortcuts.register(shortcut).map_err(|e| e.to_string())?;
+    Ok(())
+}
 
 fn cached_apps(cache: &State<'_, AppsCache>) -> Result<Arc<Vec<AppInfo>>, String> {
     let mut slot = cache.0.lock().expect("apps cache poisoned");

@@ -54,6 +54,8 @@ export interface SettingsState {
   autoUpdateCheck: boolean;
   updateChannel: "stable" | "beta";
   openOnTab: Tab;
+  /** Global popover toggle, in Tauri accelerator form (e.g. "alt+cmd+o"). */
+  toggleShortcut: string;
 }
 
 const SETTINGS_KEY = "openwith.settings";
@@ -70,6 +72,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   autoUpdateCheck: true,
   updateChannel: "stable",
   openOnTab: "extensions",
+  toggleShortcut: "alt+cmd+o",
 };
 
 function loadSettings(): SettingsState {
@@ -90,6 +93,26 @@ export function saveSettings(): void {
   }
 }
 
+/** Re-read settings from localStorage. The popover calls this on `storage`
+ * events so main-window changes (shortcut, bundle IDs…) reach it live. */
+export function reloadSettings(): void {
+  state.settings = loadSettings();
+}
+
+/** "alt+cmd+o" → "⌥⌘O" for display, in canonical macOS modifier order. */
+export function shortcutGlyphs(accelerator: string): string {
+  const parts = accelerator.split("+").map((p) => p.trim().toLowerCase());
+  const has = (...names: string[]) => parts.some((p) => names.includes(p));
+  const key = parts[parts.length - 1] ?? "";
+  return [
+    has("ctrl", "control") ? "⌃" : "",
+    has("alt", "option") ? "⌥" : "",
+    has("shift") ? "⇧" : "",
+    has("cmd", "command", "super", "meta") ? "⌘" : "",
+    key.toUpperCase(),
+  ].join("");
+}
+
 export interface State {
   snapshot: SnapshotDto | null;
   loading: boolean;
@@ -97,6 +120,8 @@ export interface State {
 
   tab: Tab;
   settingsOpen: boolean;
+  /** Settings shortcut row is capturing the next key combo. */
+  recordingShortcut: boolean;
 
   extQuery: string;
   appsQuery: string;
@@ -125,6 +150,7 @@ export const state: State = {
 
   tab: initialSettings.openOnTab,
   settingsOpen: false,
+  recordingShortcut: false,
 
   extQuery: "",
   appsQuery: "",

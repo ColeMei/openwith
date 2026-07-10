@@ -8,7 +8,12 @@ import {
   type RecentChangeDto,
 } from "./api";
 import { avatarColor, initials } from "./colors";
-import { escapeHtml } from "./state";
+import {
+  escapeHtml,
+  reloadSettings,
+  shortcutGlyphs,
+  state as shared,
+} from "./state";
 
 const root = document.getElementById("app")!;
 const popoverWindow = getCurrentWebviewWindow();
@@ -18,6 +23,8 @@ interface PopoverState {
   matches: ExtMatchDto[];
   recent: RecentChangeDto[];
   picker: { ext: string; apps: PickerAppDto[] } | null;
+  /** Pinned popovers survive losing focus, so files can be dragged in. */
+  pinned: boolean;
 }
 
 const state: PopoverState = {
@@ -25,6 +32,7 @@ const state: PopoverState = {
   matches: [],
   recent: [],
   picker: null,
+  pinned: false,
 };
 
 function chip(name: string): string {
@@ -49,12 +57,17 @@ function renderMatches(): string {
   return state.matches
     .map((m, i) => {
       const app = m.app_name ?? "(none)";
+      // "no default set" is state, not a bundle ID — show it regardless.
+      const bid =
+        shared.settings.showBundleIds || !m.bundle_id
+          ? `<span class="bid">${escapeHtml(m.bundle_id ?? "no default set")}</span>`
+          : "";
       return `
       <div class="pop-row ${i === 0 ? "first" : ""}">
         ${chip(app)}
         <span class="pop-row-text">
           <span class="line">.${escapeHtml(m.ext)} → ${escapeHtml(app)}</span>
-          <span class="bid">${escapeHtml(m.bundle_id ?? "no default set")}</span>
+          ${bid}
         </span>
         <button class="pop-link" data-action="change" data-ext="${escapeHtml(m.ext)}">Change</button>
       </div>`;
@@ -112,11 +125,12 @@ function render() {
   <div class="popover">
     <div class="pop-head">
       <span class="title">OpenWith</span>
-      <span class="hotkey">⌥⌘O</span>
+      <button class="pop-pin ${state.pinned ? "active" : ""}" data-action="pin" title="Keep the panel open while you grab a file from Finder">${state.pinned ? "Pinned ✓" : "Pin"}</button>
+      <span class="hotkey">${escapeHtml(shortcutGlyphs(shared.settings.toggleShortcut))}</span>
     </div>
     <div class="pop-dropzone">
       <div class="line1">Drop a file to look up its default</div>
-      <div class="line2">or type an extension below</div>
+      <div class="line2">${state.pinned ? "pinned — go grab a file, the panel will wait" : "type an extension below · Pin above to drag a file in"}</div>
     </div>
     <div class="pop-search">
       <span class="icon">⌕</span>
@@ -199,6 +213,11 @@ root.addEventListener("click", (e) => {
   const target = (e.target as HTMLElement).closest("[data-action]") as HTMLElement | null;
   if (!target) return;
   switch (target.dataset.action) {
+    case "pin":
+      state.pinned = !state.pinned;
+      void api.setPopoverPinned(state.pinned);
+      render();
+      break;
     case "change":
       void openPicker(target.dataset.ext!);
       break;
@@ -237,6 +256,8 @@ document.addEventListener("keydown", (e) => {
       state.picker = null;
       render();
     } else {
+      state.pinned = false;
+      void api.setPopoverPinned(false);
       void popoverWindow.hide();
     }
   }
@@ -248,6 +269,20 @@ void popoverWindow.onFocusChanged(({ payload: focused }) => {
     void refreshRecent();
     document.getElementById("pop-search")?.focus();
   }
+});
+
+// Focus events don't fire reliably for the transparent panel, so the backend
+// emits this on every open: refresh data, reset the per-showing pin state.
+void popoverWindow.listen("popover-shown", () => {
+  state.pinned = false;
+  void refreshRecent();
+  document.getElementById("pop-search")?.focus();
+});
+
+// Settings changed in the main window (shortcut, bundle IDs) reach us here.
+window.addEventListener("storage", () => {
+  reloadSettings();
+  render();
 });
 
 getCurrentWebview().onDragDropEvent((event) => {
