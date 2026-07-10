@@ -8,6 +8,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::detect_cli,
             commands::relaunch_finder,
+            commands::get_history,
             commands::get_snapshot,
             commands::set_default,
             commands::set_scheme_default,

@@ -1,4 +1,5 @@
 pub mod config;
+pub mod history;
 pub mod launchservices;
 pub mod listing;
 pub mod plist;

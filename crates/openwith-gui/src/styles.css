@@ -782,6 +782,57 @@ body {
   color: var(--warn-text);
 }
 
+/* history panel (profiles) */
+.history-body {
+  padding: 4px 6px;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 7px;
+}
+
+.history-row:hover {
+  background: var(--field-bg);
+}
+
+.history-icon {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.history-icon.ok {
+  color: var(--ok-text);
+}
+
+.history-text {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-text .mono {
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.history-detail {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.history-date {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
 /* settings */
 .settings-view {
   flex: 1;

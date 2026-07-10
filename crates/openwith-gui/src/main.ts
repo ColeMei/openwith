@@ -207,6 +207,43 @@ function renderSchemes(): string {
 
 // ---------- profiles (export/import) ----------
 
+function historyDate(timestamp: number): string {
+  if (!timestamp) return "";
+  const d = new Date(timestamp * 1000);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function renderHistory(): string {
+  const events = state.history.filter(
+    (e) => e.kind === "export" || e.kind === "import",
+  );
+  const rows =
+    events.length > 0
+      ? events
+          .map((e) => {
+            const isImport = e.kind === "import";
+            return `
+          <div class="history-row">
+            <span class="history-icon ${isImport ? "ok" : ""}">${isImport ? "✓" : "↓"}</span>
+            <span class="history-text">${isImport ? "Imported" : "Exported"} <span class="mono">${escapeHtml(e.key)}</span></span>
+            <span class="history-detail">${escapeHtml(e.detail ?? "")}</span>
+            <span class="history-date">${escapeHtml(historyDate(e.timestamp))}</span>
+          </div>`;
+          })
+          .join("")
+      : `<div class="history-row"><span class="italic-muted">No exports or imports yet.</span></div>`;
+
+  return `
+  <div class="panel-block">
+    <div class="panel-block-head"><span>HISTORY</span></div>
+    <div class="history-body">${rows}</div>
+  </div>`;
+}
+
 function renderProfiles(): string {
   const totalExt = state.snapshot?.associations.length ?? 0;
   const totalSchemes = state.snapshot?.schemes.length ?? 0;
@@ -229,6 +266,7 @@ function renderProfiles(): string {
       </div>
     </div>
     ${state.importPending ? renderImportPreview() : ""}
+    ${renderHistory()}
   </div>`;
 }
 
@@ -505,7 +543,20 @@ function render() {
 
 // ---------- mutation helpers ----------
 
+function refreshHistory() {
+  api
+    .getHistory(50)
+    .then((events) => {
+      state.history = events;
+      render();
+    })
+    .catch(() => {
+      // history is display-only; a read failure just leaves the panel stale
+    });
+}
+
 function afterApply() {
+  refreshHistory();
   if (state.settings.relaunchFinder) {
     api.relaunchFinder().catch(() => {
       // Finder relaunch is best-effort; the association change already applied
@@ -655,6 +706,7 @@ async function handleExport() {
     state.toast = {
       text: `Exported ${result.association_count} associations and ${result.scheme_count} schemes`,
     };
+    refreshHistory();
   } catch (e) {
     state.toast = { text: `Export failed: ${e}` };
   }
@@ -707,6 +759,7 @@ async function applyImport() {
       text: `Applied ${result.applied.length}, unchanged ${result.unchanged}, skipped ${result.skipped.length}`,
     };
     if (result.applied.length > 0) afterApply();
+    else refreshHistory();
   } catch (e) {
     state.toast = { text: `Import failed: ${e}` };
   } finally {
@@ -967,6 +1020,7 @@ async function bootstrap() {
     state.cliVersion = v;
     render();
   });
+  refreshHistory();
 
   try {
     state.snapshot = await api.getSnapshot();

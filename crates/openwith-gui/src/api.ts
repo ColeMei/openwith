@@ -60,6 +60,16 @@ export interface ImportPreviewDto {
   skipped: ImportSkippedDto[];
 }
 
+export interface HistoryEventDto {
+  kind: "set" | "set_scheme" | "export" | "import";
+  key: string;
+  old: string | null;
+  new: string | null;
+  detail: string | null;
+  timestamp: number;
+  source: string;
+}
+
 export const api = {
   detectCli: () => invoke<string | null>("detect_cli"),
   relaunchFinder: () => invoke<void>("relaunch_finder"),
@@ -72,4 +82,6 @@ export const api = {
     invoke<ExportResultDto>("export_toml", { path }),
   importToml: (path: string, dryRun: boolean) =>
     invoke<ImportPreviewDto>("import_toml", { path, dryRun }),
+  getHistory: (limit: number) =>
+    invoke<HistoryEventDto[]>("get_history", { limit }),
 };

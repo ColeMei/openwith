@@ -1,6 +1,12 @@
 use serde::Serialize;
 
+use openwith_core::history::{self, HistoryEvent};
 use openwith_core::{config, launchservices, listing, scanner, uti};
+
+/// History writes are best-effort — never fail the change that triggered them.
+fn record_history(event: HistoryEvent) {
+    let _ = history::record(event);
+}
 
 #[derive(Serialize)]
 pub struct AppDto {
@@ -69,6 +75,34 @@ pub struct ImportSkippedDto {
     pub key: String,
     pub app_name: String,
     pub reason: String,
+}
+
+#[derive(Serialize)]
+pub struct HistoryEventDto {
+    pub kind: String,
+    pub key: String,
+    pub old: Option<String>,
+    pub new: Option<String>,
+    pub detail: Option<String>,
+    pub timestamp: u64,
+    pub source: String,
+}
+
+#[tauri::command]
+pub fn get_history(limit: usize) -> Result<Vec<HistoryEventDto>, String> {
+    let events = history::recent(limit).map_err(|e| e.to_string())?;
+    Ok(events
+        .into_iter()
+        .map(|e| HistoryEventDto {
+            kind: e.kind,
+            key: e.key,
+            old: e.old,
+            new: e.new,
+            detail: e.detail,
+            timestamp: e.timestamp,
+            source: e.source,
+        })
+        .collect())
 }
 
 /// Version string reported by an installed `openwith` CLI, if any.
@@ -178,6 +212,16 @@ pub fn set_default(ext: String, app: String) -> Result<SetResultDto, String> {
 
     launchservices::set_default(&bundle_id, &uti_str).map_err(|e| e.to_string())?;
 
+    record_history(HistoryEvent {
+        kind: "set".into(),
+        key: format!(".{ext}"),
+        old: previous.clone(),
+        new: Some(bundle_id.clone()),
+        detail: None,
+        timestamp: history::now_secs(),
+        source: "gui".into(),
+    });
+
     let previous_app_name = previous.map(|p| scanner::resolve_name(&apps, &p));
 
     let all_extensions = scanner::all_extensions(&apps);
@@ -223,6 +267,16 @@ pub fn set_scheme_default(scheme: String, app: String) -> Result<SetResultDto, S
 
     launchservices::set_default_scheme_handler(&bundle_id, &scheme).map_err(|e| e.to_string())?;
 
+    record_history(HistoryEvent {
+        kind: "set_scheme".into(),
+        key: format!("{scheme}://"),
+        old: previous.clone(),
+        new: Some(bundle_id.clone()),
+        detail: None,
+        timestamp: history::now_secs(),
+        source: "gui".into(),
+    });
+
     let previous_app_name = previous.map(|p| scanner::resolve_name(&apps, &p));
 
     Ok(SetResultDto {
@@ -243,6 +297,23 @@ pub fn export_toml(path: Option<String>) -> Result<ExportResultDto, String> {
 
     if let Some(path) = &path {
         std::fs::write(path, &toml_str).map_err(|e| e.to_string())?;
+        let file_name = std::path::Path::new(path)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        record_history(HistoryEvent {
+            kind: "export".into(),
+            key: file_name,
+            old: None,
+            new: None,
+            detail: Some(format!(
+                "{} extensions · {} schemes",
+                cfg.associations.len(),
+                cfg.schemes.len()
+            )),
+            timestamp: history::now_secs(),
+            source: "gui".into(),
+        });
     }
 
     Ok(ExportResultDto {
@@ -259,6 +330,26 @@ pub fn import_toml(path: String, dry_run: bool) -> Result<ImportPreviewDto, Stri
 
     let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
     let result = config::import_associations(&cfg, &apps, dry_run);
+
+    if !dry_run {
+        let file_name = std::path::Path::new(&path)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        record_history(HistoryEvent {
+            kind: "import".into(),
+            key: file_name,
+            old: None,
+            new: None,
+            detail: Some(format!(
+                "{} applied · {} skipped",
+                result.applied.len(),
+                result.unchanged.len() + result.skipped.len()
+            )),
+            timestamp: history::now_secs(),
+            source: "gui".into(),
+        });
+    }
 
     let applied = result
         .applied

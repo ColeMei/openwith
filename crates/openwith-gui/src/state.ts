@@ -1,4 +1,10 @@
-import type { AppDto, AssociationDto, SchemeDto, SnapshotDto } from "./api";
+import type {
+  AppDto,
+  AssociationDto,
+  HistoryEventDto,
+  SchemeDto,
+  SnapshotDto,
+} from "./api";
 
 export type Tab = "extensions" | "apps" | "schemes" | "profiles";
 
@@ -95,6 +101,7 @@ export interface State {
   toast: ToastState | null;
   importPending: ImportPending | null;
   windowDragOver: boolean;
+  history: HistoryEventDto[];
 
   settings: SettingsState;
 
@@ -122,6 +129,7 @@ export const state: State = {
   toast: null,
   importPending: null,
   windowDragOver: false,
+  history: [],
 
   settings: initialSettings,
 

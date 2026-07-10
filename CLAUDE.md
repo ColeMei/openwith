@@ -48,6 +48,7 @@ crates/
     uti.rs             -- UTI resolution: system lookup first, hardcoded fallback map, memoized; shared-UTI sibling detection
     listing.rs         -- parallel default-handler queries shared by TUI, export, and list
     config.rs          -- TOML export/import logic ([associations] + [schemes])
+    history.rs         -- append-only change log (~/Library/Application Support/openwith/history.json)
     types.rs           -- AppInfo
   openwith-cli/src/     -- bin crate, produces the `openwith` executable
     main.rs             -- clap CLI dispatch
@@ -84,6 +85,7 @@ crates/
 - Loading screen enters TUI alternate screen immediately, shows ASCII logo + spinner while scanning in background.
 - Export/import uses serde + toml crate with `BTreeMap<String, String>` for sorted, human-readable TOML; import validates apps exist and skips associations already set correctly.
 - GUI: single `get_snapshot` command returns apps + associations (with sibling-UTI conflict data) + contested schemes in one call; the frontend is a plain render-to-innerHTML loop with `data-action` event delegation, no framework. Versions are lockstep: `tauri.conf.json` omits `version` so the app version comes from `workspace.package` in the root Cargo.toml.
+- `openwith-core::history` is the shared change log (capped at 500 events, best-effort writes that never fail the triggering change). The GUI records set/export/import events and renders export/import in the Profiles HISTORY panel; CLI recording plus `openwith history`/`openwith undo` land in Phase 2 (v0.5.1).
 - GUI settings live in localStorage (`openwith.settings`). The Settings pane mirrors the design prototype's full layout; controls whose feature ships in a later 0.5.x phase (launch at login, menu bar) render disabled with an "arrives in v0.5.1" note rather than as silently-dead toggles.
 - GUI visual source of truth is the claude.design prototype "OpenWith GUI Explorations" (project 14225854-984c-4e5c-8d2b-8c9ce38a1624), variants 1c (light) / 2a (dark): glyph tab icons (⌸ ⊞ ⤴ ⇅ — never emoji), 2-char initial chips (20px rows / 26px app list / 52px detail), fixed mid accent oklch(0.62 0.14 45) for tab underline + toggles, inverted toast. Check UI changes against it before shipping.
 

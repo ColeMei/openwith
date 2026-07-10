@@ -2558,6 +2558,7 @@ dependencies = [
  "core-foundation",
  "plist",
  "serde",
+ "serde_json",
  "toml 0.8.2",
 ]
 
