@@ -76,7 +76,7 @@ crates/
     src-tauri/src/
       commands.rs       -- #[tauri::command] wrappers over openwith-core + apps cache
       tray.rs           -- tray icon lifecycle + popover positioning (plugin-positioner)
-      lib.rs            -- tauri Builder, plugins (dialog, opener, positioner, autostart, global-shortcut ⌥⌘O)
+      lib.rs            -- tauri Builder, plugins (dialog, opener, positioner, autostart, global-shortcut — default ⌥⌘O, user-configurable)
 ```
 
 ### Key patterns
@@ -93,7 +93,7 @@ crates/
 - Export/import uses serde + toml crate with `BTreeMap<String, String>` for sorted, human-readable TOML; import validates apps exist and skips associations already set correctly.
 - GUI: single `get_snapshot` command returns apps + associations (with sibling-UTI conflict data) + contested schemes in one call; the frontend is a plain render-to-innerHTML loop with `data-action` event delegation, no framework. Versions are lockstep: `tauri.conf.json` omits `version` so the app version comes from `workspace.package` in the root Cargo.toml.
 - `openwith-core::history` is the shared change log (capped at 500 events, best-effort writes that never fail the triggering change). CLI, GUI, and core import all record into it; the GUI Profiles panel shows export/import events, the menu-bar popover shows set events with per-entry Undo, and `openwith history`/`openwith undo` read the same file.
-- The GUI is two windows off one Vite bundle: `main` and a hidden transparent `menubar` popover (requires `macOSPrivateApi: true`). The popover hides on blur and is toggled by the tray icon or ⌥⌘O. A backend `AppsCache` (refreshed by `get_snapshot`) keeps popover lookups instant.
+- The GUI is two windows off one Vite bundle: `main` and a hidden transparent `menubar` popover (requires `macOSPrivateApi: true`). The popover hides on blur and is toggled by the tray icon or a configurable global shortcut (default ⌥⌘O; `set_toggle_shortcut` swaps the registration at runtime, the saved accelerator is re-applied at bootstrap). A **Pin** button suspends hide-on-blur for one showing (backend `PopoverPinned` AtomicBool, reset on every toggle) so a file can be dragged in from Finder — without it the click into Finder blurs and hides the panel. Focus events are unreliable for the transparent panel, so the backend emits `popover-shown` on every open and the popover refreshes from that, not just from focus. A backend `AppsCache` (refreshed by `get_snapshot`) keeps popover lookups instant.
 - GUI settings live in localStorage (`openwith.settings`). The Settings pane mirrors the design prototype's full layout; controls whose feature ships in a later 0.5.x phase (launch at login, menu bar) render disabled with an "arrives in v0.5.1" note rather than as silently-dead toggles.
 - GUI visual source of truth is the claude.design prototype "OpenWith GUI Explorations" (project 14225854-984c-4e5c-8d2b-8c9ce38a1624), variants 1c (light) / 2a (dark): glyph tab icons (⌸ ⊞ ⤴ ⇅ — never emoji), 2-char initial chips (20px rows / 26px app list / 52px detail), fixed mid accent oklch(0.62 0.14 45) for tab underline + toggles, inverted toast. Check UI changes against it before shipping.
 
@@ -163,7 +163,14 @@ Run against the built .app (not just `tauri dev`) before tagging any release wit
 - [ ] Appearance: flip System/Light/Dark with the popover open — both windows restyle
 - [ ] Every Settings toggle: launch at login, confirm before applying, warn on UTI conflicts, show bundle IDs, relaunch Finder, check automatically, channel, open-on-tab
 - [ ] Set a default from the Extensions sheet; verify with `openwith current <ext>`; Undo from the toast; verify again
+- [ ] Toasts dismiss themselves (~5s, ~8s with an Undo button) without being replaced
 - [ ] Popover: extension lookup, change, Recent Changes + per-entry Undo
+- [ ] Make a change in the main window, then open the popover — it appears under Recent Changes
+- [ ] Popover Pin: pin, click into Finder (panel must stay up), drag a file onto it — extension lookup runs; unpinned panel still hides on blur; Esc and tray-toggle reset the pin
+- [ ] Rebind the popover shortcut in Settings; old combo dead, new combo toggles; survives an app relaunch; ⌥⌘O labels in Settings + popover follow
+- [ ] Toggle "Warn on UTI conflicts" off — UTI ⚠ badges disappear from the Extensions table; sheet + toast warnings stay off too
+- [ ] Toggle "Show bundle IDs" off — bundle IDs vanish from Extensions table, Apps detail header, and popover rows
+- [ ] With the CLI upgraded via brew while the app runs: close and reopen Settings — the Command Line panel shows the new version without an app relaunch
 - [ ] Profiles: export; import via choose AND drag-drop; dry-run preview; apply; dismiss
 - [ ] History panel scrolls at 50 entries and updates after changes
 - [ ] Check Now (updates) reports a sensible result on both channels
