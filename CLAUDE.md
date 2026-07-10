@@ -84,7 +84,8 @@ crates/
 - Loading screen enters TUI alternate screen immediately, shows ASCII logo + spinner while scanning in background.
 - Export/import uses serde + toml crate with `BTreeMap<String, String>` for sorted, human-readable TOML; import validates apps exist and skips associations already set correctly.
 - GUI: single `get_snapshot` command returns apps + associations (with sibling-UTI conflict data) + contested schemes in one call; the frontend is a plain render-to-innerHTML loop with `data-action` event delegation, no framework. Versions are lockstep: `tauri.conf.json` omits `version` so the app version comes from `workspace.package` in the root Cargo.toml.
-- GUI settings live in localStorage (`openwith.settings`); only controls whose behavior actually works are rendered — no stub toggles for unshipped phases.
+- GUI settings live in localStorage (`openwith.settings`). The Settings pane mirrors the design prototype's full layout; controls whose feature ships in a later 0.5.x phase (launch at login, menu bar) render disabled with an "arrives in v0.5.1" note rather than as silently-dead toggles.
+- GUI visual source of truth is the claude.design prototype "OpenWith GUI Explorations" (project 14225854-984c-4e5c-8d2b-8c9ce38a1624), variants 1c (light) / 2a (dark): glyph tab icons (⌸ ⊞ ⤴ ⇅ — never emoji), 2-char initial chips (20px rows / 26px app list / 52px detail), fixed mid accent oklch(0.62 0.14 45) for tab underline + toggles, inverted toast. Check UI changes against it before shipping.
 
 ## Runtime dependencies
 

@@ -7,6 +7,10 @@ export interface SheetState {
   key: string; // bare ext (no dot) or bare scheme
   conflict: boolean;
   siblings: string[];
+  currentBundleId: string | null;
+  currentAppName: string | null;
+  query: string;
+  showAll: boolean;
 }
 
 export interface ToastState {
@@ -20,20 +24,40 @@ export interface ImportPending {
   preview: import("./api").ImportPreviewDto;
 }
 
-/** User preferences, persisted to localStorage. Phase-2/3 features
- * (launch at login, update channel, notifications) gain their toggles
- * when they land — no dead controls before that. */
+export interface UpdateStatus {
+  checking: boolean;
+  latest: string | null; // newest version seen on GitHub, without the leading v
+  checkedAt: string | null; // human time of the last successful check
+  error: string | null;
+}
+
+/** User preferences, persisted to localStorage. Mirrors the prototype's
+ * Settings pane. `launchAtLogin` and `showMenuBar` render disabled until the
+ * menu bar panel lands in v0.5.1 — they're stored so flipping them then
+ * doesn't lose intent. */
 export interface SettingsState {
-  warnSharedTypes: boolean;
-  confirmBrowserChange: boolean;
+  launchAtLogin: boolean;
+  showMenuBar: boolean;
+  confirmBeforeApplying: boolean;
+  warnUtiConflicts: boolean;
+  showBundleIds: boolean;
+  relaunchFinder: boolean;
+  autoUpdateCheck: boolean;
+  updateChannel: "stable" | "beta";
   openOnTab: Tab;
 }
 
 const SETTINGS_KEY = "openwith.settings";
 
 const DEFAULT_SETTINGS: SettingsState = {
-  warnSharedTypes: true,
-  confirmBrowserChange: true,
+  launchAtLogin: false,
+  showMenuBar: false,
+  confirmBeforeApplying: false,
+  warnUtiConflicts: true,
+  showBundleIds: true,
+  relaunchFinder: false,
+  autoUpdateCheck: true,
+  updateChannel: "stable",
   openOnTab: "extensions",
 };
 
@@ -77,6 +101,7 @@ export interface State {
   /** Runtime facts shown in Settings, not preferences. */
   appVersion: string | null;
   cliVersion: string | null;
+  updateStatus: UpdateStatus;
 }
 
 const initialSettings = loadSettings();
@@ -102,6 +127,7 @@ export const state: State = {
 
   appVersion: null,
   cliVersion: null,
+  updateStatus: { checking: false, latest: null, checkedAt: null, error: null },
 };
 
 export function escapeHtml(input: string): string {
@@ -178,14 +204,33 @@ export function filteredApps(): AppDto[] {
   return sorted.filter((a) => a.name.toLowerCase().includes(q));
 }
 
+/** Apps offered in the "Open with…" sheet. Declared supporters by default;
+ * `showAll` (or no declared supporter at all — the prototype's fallback)
+ * widens to every installed app, and the query filters either set. */
+export function sheetApps(sheet: SheetState): AppDto[] {
+  const apps = state.snapshot?.apps ?? [];
+  let source = apps.filter((a) =>
+    sheet.kind === "ext"
+      ? a.extensions.includes(sheet.key)
+      : a.url_schemes.includes(sheet.key),
+  );
+  if (sheet.showAll || source.length === 0) source = apps;
+  const q = sheet.query.trim().toLowerCase();
+  if (q) source = source.filter((a) => a.name.toLowerCase().includes(q));
+  return [...source].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function schemeRole(scheme: SchemeDto): string {
   switch (scheme.scheme) {
     case "http":
     case "https":
-      return "Default browser";
+      return "Web browser";
     case "mailto":
-      return "Default mail client";
+      return "Email client";
+    case "ftp":
+    case "sftp":
+      return "File transfer";
     default:
-      return "URL scheme handler";
+      return "URL scheme";
   }
 }

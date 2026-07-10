@@ -13,29 +13,48 @@
   --text-faintest: #b3ac9f;
 
   --accent: oklch(0.52 0.14 45);
+  --accent-strong: oklch(0.52 0.14 45);
   --accent-hover: oklch(0.45 0.14 45);
   --accent-soft: oklch(0.95 0.03 45);
   --accent-soft-hover: oklch(0.91 0.05 45);
   --accent-border: oklch(0.75 0.09 45);
 
+  /* Fixed mid-tone accent the prototype uses for tab underlines, toggles and
+     the current-app outline — the same in both themes. */
+  --accent-mid: oklch(0.62 0.14 45);
+
+  --tab-inactive: #8a857d;
+
   --warn-text: #9a6700;
   --warn-bg: #fff3d1;
   --warn-border: #e8d49a;
+  --warn-bg-soft: #fff8e5;
+  --warn-border-soft: #eeddab;
 
   --ok-text: #1d6b40;
   --ok-bg: #e9f5ee;
 
   --claim-border: #ddd5c8;
 
-  --toast-bg: var(--text);
-  --toast-text: #fff;
+  --row-selected: #f3ede4;
 
+  /* Toast is inverted relative to the theme, so its accent comes from the
+     opposite theme's ramp. */
+  --toast-bg: #2b2926;
+  --toast-text: #fff;
+  --toast-accent: oklch(0.78 0.11 45);
+
+  --toggle-on: var(--accent-mid);
   --toggle-track-off: #e2dbd0;
   --pill-bg: #f0ebe3;
   --pill-hover: #e9e2d6;
+  --seg-active: #fff;
+
+  --panel-head-bg: #faf8f5;
 
   --sheet-overlay: rgba(43, 41, 38, 0.28);
   --sheet-bg: #fff;
+  --sheet-current-bg: oklch(0.97 0.02 45);
 
   color-scheme: light;
 }
@@ -53,30 +72,43 @@
     --text-faint: #7a7268;
     --text-faintest: #7a7268;
 
-    --accent: oklch(0.78 0.11 45);
-    --accent-hover: oklch(0.72 0.13 45);
+    --accent: oklch(0.72 0.13 45);
+    --accent-strong: oklch(0.78 0.11 45);
+    --accent-hover: oklch(0.78 0.11 45);
     --accent-soft: oklch(0.32 0.06 45);
     --accent-soft-hover: oklch(0.37 0.07 45);
     --accent-border: oklch(0.5 0.09 45);
 
+    --tab-inactive: #8f887d;
+
     --warn-text: #d9b45c;
     --warn-bg: #3a3222;
     --warn-border: #55482a;
+    --warn-bg-soft: #3a3222;
+    --warn-border-soft: #55482a;
 
     --ok-text: #7fce9e;
     --ok-bg: #24382c;
 
     --claim-border: #4a443c;
 
+    --row-selected: #332e29;
+
     --toast-bg: #ece7df;
     --toast-text: #2b2926;
+    --toast-accent: oklch(0.52 0.14 45);
 
+    --toggle-on: oklch(0.66 0.13 45);
     --toggle-track-off: #4a443c;
     --pill-bg: #332e29;
     --pill-hover: #3f3933;
+    --seg-active: #3f3933;
+
+    --panel-head-bg: #242019;
 
     --sheet-overlay: rgba(0, 0, 0, 0.45);
     --sheet-bg: #2a2724;
+    --sheet-current-bg: oklch(0.3 0.05 45);
 
     color-scheme: dark;
   }
@@ -137,7 +169,7 @@ body {
   align-items: center;
   gap: 5px;
   font-size: 12.5px;
-  color: var(--text-faint);
+  color: var(--tab-inactive);
   font-weight: 400;
   border-bottom: 2px solid transparent;
   padding-bottom: 2px;
@@ -156,7 +188,7 @@ body {
 .tab.active {
   color: var(--text);
   font-weight: 700;
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--accent-mid);
 }
 
 .tab .icon {
@@ -181,7 +213,7 @@ body {
 
 .gear.active {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--accent-mid);
 }
 
 /* shared panel */
@@ -238,6 +270,7 @@ body {
   margin-left: auto;
   font-size: 11px;
   color: var(--text-faintest);
+  font-family: ui-monospace, Menlo, monospace;
 }
 
 /* extensions table */
@@ -254,6 +287,12 @@ body {
   grid-template-columns: 90px 1fr 1fr 60px;
   gap: 0 12px;
   align-items: center;
+}
+
+/* "Show bundle IDs" off drops the third column */
+.ext-head.no-bids,
+.ext-row.no-bids {
+  grid-template-columns: 90px 1fr 60px;
 }
 
 .ext-head {
@@ -273,7 +312,7 @@ body {
 }
 
 .ext-row {
-  padding: 8px 16px;
+  padding: 7px 16px;
   border-bottom: 1px solid var(--row-border);
   cursor: default;
 }
@@ -335,19 +374,38 @@ body {
   color: var(--text-faintest);
 }
 
+/* Chip sizes from the prototype: 20px in table rows, 22px in sheets and
+   scheme rows, 26px in the apps list, 52px in the app detail head. */
 .avatar {
   flex: none;
+  width: 20px;
+  height: 20px;
   border-radius: 5px;
   color: #fff;
+  font-size: 10px;
   font-weight: 700;
   display: grid;
   place-items: center;
+}
+
+.avatar-sm {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.avatar-lg {
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  font-size: 22px;
 }
 
 /* apps master-detail */
 .apps-view {
   flex: 1;
   display: flex;
+  flex-direction: row; /* .view sets column; master-detail is side by side */
   min-height: 0;
 }
 
@@ -388,12 +446,17 @@ body {
 }
 
 .app-row.selected {
-  background: var(--accent-soft);
+  background: var(--row-selected);
+}
+
+.app-row.selected .name {
+  font-weight: 700;
 }
 
 .app-row .avatar {
   width: 26px;
   height: 26px;
+  border-radius: 7px;
   font-size: 11px;
 }
 
@@ -423,13 +486,6 @@ body {
   flex-wrap: wrap;
 }
 
-.app-detail-head .avatar {
-  width: 52px;
-  height: 52px;
-  font-size: 22px;
-  border-radius: 13px;
-}
-
 .app-detail-name {
   font-size: 18px;
   font-weight: 800;
@@ -446,7 +502,7 @@ body {
   margin-left: auto;
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-strong);
   background: var(--accent-soft);
   border-radius: 7px;
   padding: 6px 12px;
@@ -518,7 +574,7 @@ body {
 }
 
 .chip-claim:hover {
-  color: var(--accent);
+  color: var(--accent-strong);
   background: var(--accent-soft);
   border-color: var(--accent-border);
 }
@@ -568,12 +624,6 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.scheme-app .avatar {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
 }
 
 .scheme-change {
@@ -676,8 +726,9 @@ body {
 .panel-block-head {
   display: flex;
   align-items: center;
+  gap: 14px;
   padding: 10px 14px;
-  background: var(--bg);
+  background: var(--panel-head-bg);
   border-bottom: 1px solid var(--header-border);
   font-size: 11px;
   font-weight: 700;
@@ -686,7 +737,6 @@ body {
 }
 
 .panel-block-head .apply {
-  margin-left: auto;
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
@@ -694,6 +744,25 @@ body {
   background: none;
   border: none;
   font-family: inherit;
+}
+
+.panel-block-head .apply:disabled {
+  color: var(--text-faintest);
+}
+
+.panel-block-head .dismiss {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  cursor: default;
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+
+.panel-block-head .dismiss:hover {
+  color: var(--text);
 }
 
 .preview-body {
@@ -767,6 +836,15 @@ body {
   color: var(--ok-text);
 }
 
+.settings-row .desc.warn-text {
+  color: var(--warn-text);
+}
+
+/* Feature announced in the prototype but arriving in a later 0.5.x phase */
+.settings-row.pending {
+  opacity: 0.45;
+}
+
 .toggle {
   margin-left: auto;
   flex: none;
@@ -782,7 +860,7 @@ body {
 }
 
 .toggle.on {
-  background: var(--accent);
+  background: var(--toggle-on);
 }
 
 .toggle .knob {
@@ -823,9 +901,9 @@ body {
 }
 
 .segmented .option.active {
-  background: var(--panel);
+  background: var(--seg-active);
   color: var(--text);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .btn-pill {
@@ -899,10 +977,25 @@ body {
   font-size: 11px;
   line-height: 1.5;
   color: var(--warn-text);
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
+  background: var(--warn-bg-soft);
+  border: 1px solid var(--warn-border-soft);
   border-radius: 7px;
   padding: 7px 10px;
+}
+
+.sheet-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sheet-controls .search-field {
+  width: 230px;
+}
+
+.sheet-controls .segmented {
+  margin-left: 0;
 }
 
 .sheet-apps {
@@ -910,6 +1003,9 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
+  max-height: 38vh;
+  overflow-y: auto;
+  align-content: flex-start;
 }
 
 .sheet-app {
@@ -924,14 +1020,17 @@ body {
 }
 
 .sheet-app:hover {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
+  border-color: var(--accent-mid);
+  background: var(--sheet-current-bg);
 }
 
-.sheet-app .avatar {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
+.sheet-app.current {
+  border-color: var(--accent-mid);
+  background: var(--sheet-current-bg);
+}
+
+.sheet-app.current .name {
+  font-weight: 700;
 }
 
 .sheet-app .name {
@@ -966,7 +1065,7 @@ body {
 .toast .undo {
   font-size: 12px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--toast-accent);
   cursor: default;
   white-space: nowrap;
   background: none;

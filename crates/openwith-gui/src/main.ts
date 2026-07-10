@@ -7,7 +7,7 @@ import {
 } from "@tauri-apps/plugin-dialog";
 
 import { api, type AppDto, type SetResultDto } from "./api";
-import { avatarColor, initial } from "./colors";
+import { avatarColor, initials } from "./colors";
 import {
   appStats,
   escapeHtml,
@@ -16,6 +16,7 @@ import {
   findApp,
   saveSettings,
   schemeRole,
+  sheetApps,
   state,
   type Tab,
 } from "./state";
@@ -23,16 +24,17 @@ import {
 const root = document.getElementById("app")!;
 
 function avatar(name: string, extraClass = ""): string {
-  return `<span class="avatar ${extraClass}" style="background:${avatarColor(name)}">${escapeHtml(initial(name))}</span>`;
+  return `<span class="avatar ${extraClass}" style="background:${avatarColor(name)}">${escapeHtml(initials(name))}</span>`;
 }
 
 // ---------- shell ----------
 
+// Glyphs from the design prototype — monochrome text, not emoji.
 const TABS: { id: Tab; icon: string; label: string }[] = [
-  { id: "extensions", icon: "🗂", label: "Extensions" },
-  { id: "apps", icon: "📱", label: "Apps" },
-  { id: "schemes", icon: "🔗", label: "Schemes" },
-  { id: "profiles", icon: "🔄", label: "Profiles" },
+  { id: "extensions", icon: "⌸", label: "Extensions" },
+  { id: "apps", icon: "⊞", label: "Apps" },
+  { id: "schemes", icon: "⤴", label: "Schemes" },
+  { id: "profiles", icon: "⇅", label: "Profiles" },
 ];
 
 function renderHeader(): string {
@@ -57,6 +59,8 @@ function renderHeader(): string {
 
 function renderExtensions(): string {
   const rows = filteredAssociations();
+  const showBids = state.settings.showBundleIds;
+  const gridClass = showBids ? "" : "no-bids";
   const rowsHtml = rows
     .map((r) => {
       const appName = r.app_name ?? "(none)";
@@ -65,13 +69,13 @@ function renderExtensions(): string {
         ? `<span class="badge-conflict" title="Shares a UTI with sibling extensions">UTI ⚠</span>`
         : "";
       return `
-      <div class="ext-row" data-action="open-ext-sheet" data-ext="${escapeHtml(r.ext)}">
+      <div class="ext-row ${gridClass}" data-action="open-ext-sheet" data-ext="${escapeHtml(r.ext)}">
         <span class="ext-ext">.${escapeHtml(r.ext)}</span>
         <span class="ext-app">
-          ${avatar(appName, "")}
+          ${avatar(appName)}
           <span class="name">${escapeHtml(appName)}</span>
         </span>
-        <span class="ext-bid">${escapeHtml(bid)}</span>
+        ${showBids ? `<span class="ext-bid">${escapeHtml(bid)}</span>` : ""}
         <span class="ext-flags">${badge}</span>
       </div>`;
     })
@@ -83,12 +87,12 @@ function renderExtensions(): string {
       <div class="search-bar">
         <div class="search-field">
           <span class="icon">⌕</span>
-          <input id="ext-search-input" data-action="ext-query" placeholder="Search extensions or apps" value="${escapeHtml(state.extQuery)}">
+          <input id="ext-search-input" data-action="ext-query" placeholder="Search extensions or apps (⌘F)" value="${escapeHtml(state.extQuery)}">
         </div>
         <span class="count">${rows.length} extensions</span>
       </div>
-      <div class="ext-head">
-        <span>EXT</span><span>DEFAULT APP</span><span>BUNDLE ID</span><span></span>
+      <div class="ext-head ${gridClass}">
+        <span>EXT</span><span>DEFAULT APP</span>${showBids ? "<span>BUNDLE ID</span>" : ""}<span></span>
       </div>
       <div class="ext-rows">${rowsHtml || `<div class="footer-hint" style="padding:16px">No extensions match.</div>`}</div>
       <div class="footer-hint">Click a row to change its default · drop any file on this window to look it up</div>
@@ -158,8 +162,8 @@ function renderAppDetail(app: AppDto): string {
   return `
   <div class="app-detail">
     <div class="app-detail-head">
-      ${avatar(app.name)}
-      <div>
+      ${avatar(app.name, "avatar-lg")}
+      <div style="min-width:0">
         <div class="app-detail-name">${escapeHtml(app.name)}</div>
         <div class="app-detail-bid mono">${escapeHtml(app.bundle_id)}</div>
       </div>
@@ -190,7 +194,7 @@ function renderSchemes(): string {
           <span class="scheme-role">${escapeHtml(schemeRole(s))}</span>
         </span>
         <span class="scheme-app">
-          ${avatar(appName, "")}
+          ${avatar(appName, "avatar-sm")}
           <span>${escapeHtml(appName)}</span>
         </span>
         <span class="scheme-change">Change</span>
@@ -207,17 +211,6 @@ function renderProfiles(): string {
   const totalExt = state.snapshot?.associations.length ?? 0;
   const totalSchemes = state.snapshot?.schemes.length ?? 0;
 
-  const importCard = state.importPending
-    ? renderImportPreview()
-    : `
-    <div class="profile-card" style="display:flex;flex-direction:column">
-      <div class="title">Import</div>
-      <div class="desc">Idempotent — correct entries skipped, missing apps ignored.</div>
-      <div class="dropzone ${state.windowDragOver ? "dragover" : ""}" data-action="import-choose">
-        Drop a .toml here, or <span class="link">choose file…</span>
-      </div>
-    </div>`;
-
   return `
   <div class="view profiles-view">
     <div class="profiles-grid">
@@ -227,8 +220,15 @@ function renderProfiles(): string {
         <div class="meta">${totalExt} extensions · ${totalSchemes} schemes</div>
         <button class="btn-primary" data-action="export">Export openwith.toml…</button>
       </div>
-      ${importCard}
+      <div class="profile-card" style="display:flex;flex-direction:column">
+        <div class="title">Import</div>
+        <div class="desc">Idempotent — correct entries skipped, missing apps ignored.</div>
+        <div class="dropzone ${state.windowDragOver ? "dragover" : ""}" data-action="import-choose">
+          Drop a .toml here, or <span class="link">choose file…</span>
+        </div>
+      </div>
     </div>
+    ${state.importPending ? renderImportPreview() : ""}
   </div>`;
 }
 
@@ -237,7 +237,9 @@ function renderImportPreview(): string {
   const preview = pending.preview;
   const lines: string[] = [];
   for (const a of preview.applied) {
-    const was = a.previous_app_name ? ` (was ${escapeHtml(a.previous_app_name)})` : "";
+    const was = a.previous_app_name
+      ? ` <span class="skip">(was ${escapeHtml(a.previous_app_name)})</span>`
+      : "";
     lines.push(
       `<div><span class="ok">✓ set</span> ${escapeHtml(a.key)} → ${escapeHtml(a.app_name)}${was}</div>`,
     );
@@ -252,75 +254,108 @@ function renderImportPreview(): string {
   }
 
   return `
-  <div class="profile-card" style="display:flex;flex-direction:column">
-    <div class="title">Import</div>
-    <div class="desc">Idempotent — correct entries skipped, missing apps ignored.</div>
-    <div class="panel-block" style="margin-top:0">
-      <div class="panel-block-head">
-        <span>DRY-RUN PREVIEW — ${escapeHtml(pending.fileName)}</span>
-        <button class="apply" data-action="import-apply" ${preview.applied.length === 0 ? "disabled" : ""}>Apply ${preview.applied.length} changes</button>
-      </div>
-      <div class="preview-body">${lines.join("") || "No changes."}</div>
+  <div class="panel-block">
+    <div class="panel-block-head">
+      <span>DRY-RUN PREVIEW — ${escapeHtml(pending.fileName)}</span>
+      <button class="dismiss" data-action="import-cancel">Dismiss</button>
+      <button class="apply" data-action="import-apply" ${preview.applied.length === 0 ? "disabled" : ""}>Apply ${preview.applied.length} change${preview.applied.length === 1 ? "" : "s"}</button>
     </div>
-    <button class="btn-pill" style="margin:10px 0 0" data-action="import-cancel">Cancel</button>
+    <div class="preview-body">${lines.join("") || "No changes."}</div>
   </div>`;
 }
 
 // ---------- settings ----------
 
-function toggleRow(id: string, on: boolean, label: string, desc: string): string {
+function toggleRow(
+  id: string,
+  on: boolean,
+  label: string,
+  desc: string,
+  disabled = false,
+): string {
   return `
-  <div class="settings-row">
-    <span>
+  <div class="settings-row ${disabled ? "pending" : ""}">
+    <span style="min-width:0">
       <span class="label">${escapeHtml(label)}</span>
       <span class="desc">${escapeHtml(desc)}</span>
     </span>
-    <button class="toggle ${on ? "on" : ""}" data-action="toggle" data-toggle="${id}"><span class="knob"></span></button>
+    <button class="toggle ${on ? "on" : ""}" data-action="toggle" data-toggle="${id}" ${disabled ? "disabled" : ""}><span class="knob"></span></button>
   </div>`;
+}
+
+function segmented(
+  action: string,
+  dataKey: string,
+  options: { key: string; label: string }[],
+  current: string,
+): string {
+  const buttons = options
+    .map(
+      (o) =>
+        `<button class="option ${current === o.key ? "active" : ""}" data-action="${action}" data-${dataKey}="${o.key}">${o.label}</button>`,
+    )
+    .join("");
+  return `<span class="segmented">${buttons}</span>`;
+}
+
+function updateStatusLine(): string {
+  const u = state.updateStatus;
+  const v = state.appVersion;
+  if (u.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
+  if (u.latest && v && u.latest !== v)
+    return `<span class="desc warn-text">Update ${escapeHtml(u.latest)} available — <span class="mono">brew upgrade --cask openwith</span></span>`;
+  if (u.latest && u.checkedAt)
+    return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(u.checkedAt)}</span>`;
+  return `<span class="desc">Updates ship via Homebrew</span>`;
 }
 
 function renderSettings(): string {
   const s = state.settings;
 
-  const startTabs = (["extensions", "apps"] as Tab[])
-    .map(
-      (t) =>
-        `<button class="option ${s.openOnTab === t ? "active" : ""}" data-action="set-open-tab" data-tab="${t}">${t === "extensions" ? "Extensions" : "Apps"}</button>`,
-    )
-    .join("");
-
   const cliStatus = state.cliVersion
     ? `<span class="desc ok">✓ Installed ${escapeHtml(state.cliVersion)} — GUI and CLI share the same engine</span>`
     : `<span class="desc">Not found — install with <span class="mono">brew install openwith</span></span>`;
+  const cliPill = state.cliVersion ? "brew upgrade openwith" : "brew install openwith";
 
   return `
   <div class="view settings-view">
     <div class="settings-grid">
       <div class="settings-card">
         <div class="settings-card-head">GENERAL</div>
+        ${toggleRow("launchAtLogin", s.launchAtLogin, "Launch at login", "Arrives with the menu bar panel in v0.5.1", true)}
+        ${toggleRow("showMenuBar", s.showMenuBar, "Show in menu bar", "Quick-access panel with ⌥⌘O — arrives in v0.5.1", true)}
         <div class="settings-row">
           <span><span class="label">Open on tab</span><span class="desc">Which view the main window starts on</span></span>
-          <span class="segmented">${startTabs}</span>
+          ${segmented("set-open-tab", "tab", [{ key: "extensions", label: "Extensions" }, { key: "apps", label: "Apps" }], s.openOnTab)}
         </div>
       </div>
       <div class="settings-card">
         <div class="settings-card-head">BEHAVIOR</div>
-        ${toggleRow("warnSharedTypes", s.warnSharedTypes, "Warn on shared file types", "Show a heads-up when a change affects sibling extensions")}
-        ${toggleRow("confirmBrowserChange", s.confirmBrowserChange, "Confirm before changing browser", "Ask before setting a new default for http/https")}
+        ${toggleRow("confirmBeforeApplying", s.confirmBeforeApplying, "Confirm before applying", "Ask before changing a default")}
+        ${toggleRow("warnUtiConflicts", s.warnUtiConflicts, "Warn on UTI conflicts", "Flag changes that affect sibling extensions like .env / .txt")}
+        ${toggleRow("showBundleIds", s.showBundleIds, "Show bundle IDs", "Display raw bundle identifiers in lists")}
+        ${toggleRow("relaunchFinder", s.relaunchFinder, "Relaunch Finder after changes", "Clears stale icon caches — closes Finder windows")}
       </div>
       <div class="settings-card">
         <div class="settings-card-head">UPDATES</div>
         <div class="settings-row">
-          <span>
+          <span style="min-width:0">
             <span class="label">OpenWith ${escapeHtml(state.appVersion ?? "…")}</span>
-            <span class="desc">Updates ship via Homebrew — <span class="mono">brew upgrade --cask openwith</span></span>
+            ${updateStatusLine()}
           </span>
+          <button class="btn-pill" data-action="check-updates" ${state.updateStatus.checking ? "disabled" : ""}>${state.updateStatus.checking ? "Checking…" : "Check Now"}</button>
+        </div>
+        ${toggleRow("autoUpdateCheck", s.autoUpdateCheck, "Check automatically", "Once per launch, in the background")}
+        <div class="settings-row">
+          <span><span class="label">Channel</span><span class="desc">Beta gets new features earlier</span></span>
+          ${segmented("set-channel", "channel", [{ key: "stable", label: "Stable" }, { key: "beta", label: "Beta" }], s.updateChannel)}
         </div>
       </div>
       <div class="settings-card">
         <div class="settings-card-head">COMMAND LINE</div>
         <div class="settings-row">
-          <span><span class="label mono">openwith</span>${cliStatus}</span>
+          <span style="min-width:0"><span class="label mono">openwith</span>${cliStatus}</span>
+          <span class="code-pill">${cliPill}</span>
         </div>
       </div>
     </div>
@@ -332,34 +367,43 @@ function renderSettings(): string {
 function renderSheet(): string {
   if (!state.sheet) return "";
   const sheet = state.sheet;
-  const apps = state.snapshot?.apps ?? [];
-  const eligible = apps
-    .filter((a) =>
-      sheet.kind === "ext"
-        ? a.extensions.includes(sheet.key)
-        : a.url_schemes.includes(sheet.key),
-    )
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const apps = sheetApps(sheet);
+  const declaredCount = (state.snapshot?.apps ?? []).filter((a) =>
+    sheet.kind === "ext"
+      ? a.extensions.includes(sheet.key)
+      : a.url_schemes.includes(sheet.key),
+  ).length;
 
   const target = sheet.kind === "ext" ? `.${sheet.key}` : `${sheet.key}://`;
 
   const warning =
-    sheet.kind === "ext" && sheet.conflict && state.settings.warnSharedTypes
+    sheet.kind === "ext" && sheet.conflict && state.settings.warnUtiConflicts
       ? `<div class="sheet-warning">⚠ Shares a file type — also affects <span class="mono">${sheet.siblings
           .slice(0, 6)
           .map((s) => `.${escapeHtml(s)}`)
           .join(", ")}${sheet.siblings.length > 6 ? ` +${sheet.siblings.length - 6}` : ""}</span></div>`
       : "";
 
-  const appsHtml = eligible
-    .map(
-      (a) => `
-      <div class="sheet-app" data-action="choose-app" data-bundle-id="${escapeHtml(a.bundle_id)}">
-        ${avatar(a.name)}
+  const appsHtml = apps
+    .map((a) => {
+      const current =
+        sheet.currentBundleId !== null &&
+        a.bundle_id.toLowerCase() === sheet.currentBundleId.toLowerCase();
+      return `
+      <div class="sheet-app ${current ? "current" : ""}" data-action="choose-app" data-bundle-id="${escapeHtml(a.bundle_id)}">
+        ${avatar(a.name, "avatar-sm")}
         <span class="name">${escapeHtml(a.name)}</span>
-      </div>`,
-    )
+      </div>`;
+    })
     .join("");
+
+  const showAllToggle =
+    declaredCount > 0
+      ? segmented("sheet-scope", "scope", [
+          { key: "supporting", label: `Supporting (${declaredCount})` },
+          { key: "all", label: "All apps" },
+        ], sheet.showAll ? "all" : "supporting")
+      : `<span class="italic-muted">no app declares support — showing all</span>`;
 
   return `
   <div class="sheet-overlay" data-action="close-sheet">
@@ -367,7 +411,14 @@ function renderSheet(): string {
       <div class="sheet-handle"></div>
       <div class="sheet-title">Open <span class="target mono">${target}</span> with…</div>
       ${warning}
-      <div class="sheet-apps">${appsHtml || `<span class="italic-muted">No installed app declares support for this.</span>`}</div>
+      <div class="sheet-controls">
+        <div class="search-field">
+          <span class="icon">⌕</span>
+          <input id="sheet-search-input" data-action="sheet-query" placeholder="Search apps…" value="${escapeHtml(sheet.query)}">
+        </div>
+        ${showAllToggle}
+      </div>
+      <div class="sheet-apps">${appsHtml || `<span class="italic-muted">No apps match.</span>`}</div>
     </div>
   </div>`;
 }
@@ -454,6 +505,14 @@ function render() {
 
 // ---------- mutation helpers ----------
 
+function afterApply() {
+  if (state.settings.relaunchFinder) {
+    api.relaunchFinder().catch(() => {
+      // Finder relaunch is best-effort; the association change already applied
+    });
+  }
+}
+
 function applySetResult(result: SetResultDto, announce = true) {
   if (!state.snapshot) return;
   const isScheme = result.key.endsWith("://");
@@ -487,7 +546,7 @@ function buildToast(result: SetResultDto) {
   }
   const was = result.previous_app_name ? ` (was ${result.previous_app_name})` : "";
   const extra =
-    result.siblings.length > 0
+    result.siblings.length > 0 && state.settings.warnUtiConflicts
       ? ` · also affects ${result.siblings
           .slice(0, 3)
           .map((s) => `.${s}`)
@@ -509,43 +568,35 @@ async function undoSet(key: string, previousAppName: string) {
       : await api.setDefault(key.slice(1), previousAppName);
     applySetResult(result, false);
     state.toast = { text: `Reverted ${result.key} → ${result.app_name}` };
+    afterApply();
   } catch (e) {
     state.toast = { text: `Undo failed: ${e}` };
   }
   render();
 }
 
-const CONFIRMED_SCHEMES = new Set(["http", "https", "mailto"]);
+async function confirmApply(target: string, appName: string): Promise<boolean> {
+  if (!state.settings.confirmBeforeApplying) return true;
+  return ask(`Set ${target} to open with ${appName}?`, {
+    title: "OpenWith",
+    kind: "info",
+  });
+}
 
 async function chooseApp(bundleId: string) {
   const sheet = state.sheet;
+  if (!sheet) return;
+  const target = sheet.kind === "ext" ? `.${sheet.key}` : `${sheet.key}://`;
+  const appName = findApp(bundleId)?.name ?? bundleId;
+  if (!(await confirmApply(target, appName))) return;
   state.sheet = null;
-  if (!sheet) {
-    render();
-    return;
-  }
-  if (
-    sheet.kind === "scheme" &&
-    CONFIRMED_SCHEMES.has(sheet.key) &&
-    state.settings.confirmBrowserChange
-  ) {
-    const appName = findApp(bundleId)?.name ?? bundleId;
-    const role = sheet.key === "mailto" ? "mail client" : "browser";
-    const confirmed = await ask(
-      `Make ${appName} your default ${role} (${sheet.key}://)?`,
-      { title: "OpenWith", kind: "warning" },
-    );
-    if (!confirmed) {
-      render();
-      return;
-    }
-  }
   try {
     const result =
       sheet.kind === "ext"
         ? await api.setDefault(sheet.key, bundleId)
         : await api.setSchemeDefault(sheet.key, bundleId);
     applySetResult(result);
+    if (!result.unchanged) afterApply();
   } catch (e) {
     state.toast = { text: `Failed: ${e}` };
   }
@@ -555,9 +606,11 @@ async function chooseApp(bundleId: string) {
 async function claimExt(ext: string) {
   const app = findApp(state.selectedBundleId);
   if (!app) return;
+  if (!(await confirmApply(`.${ext}`, app.name))) return;
   try {
     const result = await api.setDefault(ext, app.bundle_id);
     applySetResult(result);
+    if (!result.unchanged) afterApply();
   } catch (e) {
     state.toast = { text: `Failed: ${e}` };
   }
@@ -568,6 +621,7 @@ async function claimAll() {
   const app = findApp(state.selectedBundleId);
   if (!app) return;
   const stats = appStats(app);
+  if (!(await confirmApply(`${stats.claimable.length} extensions`, app.name))) return;
   let count = 0;
   for (const c of stats.claimable) {
     try {
@@ -579,6 +633,7 @@ async function claimAll() {
     }
   }
   state.toast = { text: `Claimed ${count} extension${count === 1 ? "" : "s"} for ${app.name}` };
+  if (count > 0) afterApply();
   render();
 }
 
@@ -640,21 +695,51 @@ async function handleImportChoose() {
 
 async function applyImport() {
   if (!state.importPending) return;
-  const path = state.importPending.path;
+  const pending = state.importPending;
+  if (!(await confirmApply(`${pending.preview.applied.length} entries from ${pending.fileName}`, "their listed apps"))) return;
   state.loading = true;
   render();
   try {
-    const result = await api.importToml(path, false);
+    const result = await api.importToml(pending.path, false);
     state.importPending = null;
     state.snapshot = await api.getSnapshot();
     state.toast = {
       text: `Applied ${result.applied.length}, unchanged ${result.unchanged}, skipped ${result.skipped.length}`,
     };
+    if (result.applied.length > 0) afterApply();
   } catch (e) {
     state.toast = { text: `Import failed: ${e}` };
   } finally {
     state.loading = false;
     render();
+  }
+}
+
+function openSheet(kind: "ext" | "scheme", key: string) {
+  if (kind === "ext") {
+    const assoc = state.snapshot?.associations.find((a) => a.ext === key);
+    state.sheet = {
+      kind,
+      key,
+      conflict: assoc?.conflict ?? false,
+      siblings: assoc?.siblings ?? [],
+      currentBundleId: assoc?.bundle_id ?? null,
+      currentAppName: assoc?.app_name ?? null,
+      query: "",
+      showAll: false,
+    };
+  } else {
+    const scheme = state.snapshot?.schemes.find((s) => s.scheme === key);
+    state.sheet = {
+      kind,
+      key,
+      conflict: false,
+      siblings: [],
+      currentBundleId: scheme?.bundle_id ?? null,
+      currentAppName: scheme?.app_name ?? null,
+      query: "",
+      showAll: false,
+    };
   }
 }
 
@@ -669,14 +754,46 @@ function lookupDroppedFile(path: string) {
   const ext = filename.slice(dot + 1).toLowerCase();
   state.settingsOpen = false;
   state.tab = "extensions";
-  const assoc = state.snapshot?.associations.find((a) => a.ext === ext);
-  state.sheet = {
-    kind: "ext",
-    key: ext,
-    conflict: assoc?.conflict ?? false,
-    siblings: assoc?.siblings ?? [],
-  };
+  openSheet("ext", ext);
   render();
+}
+
+// ---------- update check ----------
+
+interface GithubRelease {
+  tag_name: string;
+  prerelease: boolean;
+  draft: boolean;
+}
+
+async function checkForUpdates() {
+  if (state.updateStatus.checking) return;
+  state.updateStatus.checking = true;
+  state.updateStatus.error = null;
+  render();
+  try {
+    const resp = await fetch(
+      "https://api.github.com/repos/ColeMei/openwith/releases?per_page=15",
+      { headers: { Accept: "application/vnd.github+json" } },
+    );
+    if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
+    const releases = (await resp.json()) as GithubRelease[];
+    const beta = state.settings.updateChannel === "beta";
+    const candidate = releases.find(
+      (r) => !r.draft && (beta || !r.prerelease),
+    );
+    if (!candidate) throw new Error("no releases found");
+    state.updateStatus.latest = candidate.tag_name.replace(/^v/, "");
+    state.updateStatus.checkedAt = new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (e) {
+    state.updateStatus.error = e instanceof Error ? e.message : String(e);
+  } finally {
+    state.updateStatus.checking = false;
+    render();
+  }
 }
 
 // ---------- event delegation ----------
@@ -696,20 +813,12 @@ root.addEventListener("click", (e) => {
       state.settingsOpen = !state.settingsOpen;
       render();
       break;
-    case "open-ext-sheet": {
-      const ext = target.dataset.ext!;
-      const assoc = state.snapshot?.associations.find((a) => a.ext === ext);
-      state.sheet = {
-        kind: "ext",
-        key: ext,
-        conflict: assoc?.conflict ?? false,
-        siblings: assoc?.siblings ?? [],
-      };
+    case "open-ext-sheet":
+      openSheet("ext", target.dataset.ext!);
       render();
       break;
-    }
     case "open-scheme-sheet":
-      state.sheet = { kind: "scheme", key: target.dataset.scheme!, conflict: false, siblings: [] };
+      openSheet("scheme", target.dataset.scheme!);
       render();
       break;
     case "close-sheet":
@@ -749,10 +858,22 @@ root.addEventListener("click", (e) => {
       state.toast = null;
       render();
       break;
+    case "sheet-scope":
+      if (state.sheet) {
+        state.sheet.showAll = target.dataset.scope === "all";
+        render();
+      }
+      break;
+    case "check-updates":
+      void checkForUpdates();
+      break;
     case "toggle": {
       const key = target.dataset.toggle as
-        | "warnSharedTypes"
-        | "confirmBrowserChange";
+        | "confirmBeforeApplying"
+        | "warnUtiConflicts"
+        | "showBundleIds"
+        | "relaunchFinder"
+        | "autoUpdateCheck";
       state.settings[key] = !state.settings[key];
       saveSettings();
       render();
@@ -760,6 +881,11 @@ root.addEventListener("click", (e) => {
     }
     case "set-open-tab":
       state.settings.openOnTab = target.dataset.tab as Tab;
+      saveSettings();
+      render();
+      break;
+    case "set-channel":
+      state.settings.updateChannel = target.dataset.channel as "stable" | "beta";
       saveSettings();
       render();
       break;
@@ -773,6 +899,30 @@ root.addEventListener("input", (e) => {
     render();
   } else if (target.dataset.action === "apps-query") {
     state.appsQuery = target.value;
+    render();
+  } else if (target.dataset.action === "sheet-query") {
+    if (state.sheet) {
+      state.sheet.query = target.value;
+      render();
+    }
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    let id: string;
+    if (state.sheet) {
+      id = "sheet-search-input";
+    } else {
+      state.settingsOpen = false;
+      if (state.tab !== "apps") state.tab = "extensions";
+      render();
+      id = state.tab === "apps" ? "apps-search-input" : "ext-search-input";
+    }
+    document.getElementById(id)?.focus();
+  } else if (e.key === "Escape" && state.sheet) {
+    state.sheet = null;
     render();
   }
 });
@@ -810,7 +960,8 @@ async function bootstrap() {
 
   getVersion().then((v) => {
     state.appVersion = v;
-    render();
+    if (state.settings.autoUpdateCheck) void checkForUpdates();
+    else render();
   });
   api.detectCli().then((v) => {
     state.cliVersion = v;

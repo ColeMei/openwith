@@ -7,6 +7,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::detect_cli,
+            commands::relaunch_finder,
             commands::get_snapshot,
             commands::set_default,
             commands::set_scheme_default,

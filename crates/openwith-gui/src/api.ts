@@ -62,6 +62,7 @@ export interface ImportPreviewDto {
 
 export const api = {
   detectCli: () => invoke<string | null>("detect_cli"),
+  relaunchFinder: () => invoke<void>("relaunch_finder"),
   getSnapshot: () => invoke<SnapshotDto>("get_snapshot"),
   setDefault: (ext: string, app: string) =>
     invoke<SetResultDto>("set_default", { ext, app }),

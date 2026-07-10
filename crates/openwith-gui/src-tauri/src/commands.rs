@@ -94,6 +94,17 @@ pub fn detect_cli() -> Option<String> {
     })
 }
 
+/// Relaunch Finder so it drops stale icon caches after a default changes.
+/// Finder restarts itself automatically after `killall`.
+#[tauri::command]
+pub fn relaunch_finder() -> Result<(), String> {
+    std::process::Command::new("killall")
+        .arg("Finder")
+        .status()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_snapshot() -> Result<SnapshotDto, String> {
     let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
