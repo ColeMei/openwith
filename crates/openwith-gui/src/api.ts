@@ -120,4 +120,6 @@ export const api = {
   quitApp: () => invoke<void>("quit_app"),
   setTrayEnabled: (enabled: boolean) =>
     invoke<void>("set_tray_enabled", { enabled }),
+  setDockVisible: (visible: boolean) =>
+    invoke<void>("set_dock_visible", { visible }),
 };

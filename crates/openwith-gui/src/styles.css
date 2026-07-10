@@ -59,59 +59,60 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #201d1b;
-    --panel: #292521;
-    --panel-border: #3a352f;
-    --header-border: #332f2a;
-    --row-border: #2f2b26;
-    --field-bg: #332e29;
-    --text: #ece7df;
-    --text-muted: #a89f92;
-    --text-faint: #7a7268;
-    --text-faintest: #7a7268;
+/* Dark theme is applied by stamping data-theme="dark" on <html> (main.ts):
+   the Appearance setting resolves System via matchMedia, so CSS never needs
+   the media query directly. */
+:root[data-theme="dark"] {
+  --bg: #201d1b;
+  --panel: #292521;
+  --panel-border: #3a352f;
+  --header-border: #332f2a;
+  --row-border: #2f2b26;
+  --field-bg: #332e29;
+  --text: #ece7df;
+  --text-muted: #a89f92;
+  --text-faint: #7a7268;
+  --text-faintest: #7a7268;
 
-    --accent: oklch(0.72 0.13 45);
-    --accent-strong: oklch(0.78 0.11 45);
-    --accent-hover: oklch(0.78 0.11 45);
-    --accent-soft: oklch(0.32 0.06 45);
-    --accent-soft-hover: oklch(0.37 0.07 45);
-    --accent-border: oklch(0.5 0.09 45);
+  --accent: oklch(0.72 0.13 45);
+  --accent-strong: oklch(0.78 0.11 45);
+  --accent-hover: oklch(0.78 0.11 45);
+  --accent-soft: oklch(0.32 0.06 45);
+  --accent-soft-hover: oklch(0.37 0.07 45);
+  --accent-border: oklch(0.5 0.09 45);
 
-    --tab-inactive: #8f887d;
+  --tab-inactive: #8f887d;
 
-    --warn-text: #d9b45c;
-    --warn-bg: #3a3222;
-    --warn-border: #55482a;
-    --warn-bg-soft: #3a3222;
-    --warn-border-soft: #55482a;
+  --warn-text: #d9b45c;
+  --warn-bg: #3a3222;
+  --warn-border: #55482a;
+  --warn-bg-soft: #3a3222;
+  --warn-border-soft: #55482a;
 
-    --ok-text: #7fce9e;
-    --ok-bg: #24382c;
+  --ok-text: #7fce9e;
+  --ok-bg: #24382c;
 
-    --claim-border: #4a443c;
+  --claim-border: #4a443c;
 
-    --row-selected: #332e29;
+  --row-selected: #332e29;
 
-    --toast-bg: #ece7df;
-    --toast-text: #2b2926;
-    --toast-accent: oklch(0.52 0.14 45);
+  --toast-bg: #ece7df;
+  --toast-text: #2b2926;
+  --toast-accent: oklch(0.52 0.14 45);
 
-    --toggle-on: oklch(0.66 0.13 45);
-    --toggle-track-off: #4a443c;
-    --pill-bg: #332e29;
-    --pill-hover: #3f3933;
-    --seg-active: #3f3933;
+  --toggle-on: oklch(0.66 0.13 45);
+  --toggle-track-off: #4a443c;
+  --pill-bg: #332e29;
+  --pill-hover: #3f3933;
+  --seg-active: #3f3933;
 
-    --panel-head-bg: #242019;
+  --panel-head-bg: #242019;
 
-    --sheet-overlay: rgba(0, 0, 0, 0.45);
-    --sheet-bg: #2a2724;
-    --sheet-current-bg: oklch(0.3 0.05 45);
+  --sheet-overlay: rgba(0, 0, 0, 0.45);
+  --sheet-bg: #2a2724;
+  --sheet-current-bg: oklch(0.3 0.05 45);
 
-    color-scheme: dark;
-  }
+  color-scheme: dark;
 }
 
 * {
@@ -685,11 +686,9 @@ body {
   font-family: inherit;
 }
 
-@media (prefers-color-scheme: dark) {
-  .btn-primary {
-    color: var(--bg);
-    background: var(--text);
-  }
+[data-theme="dark"] .btn-primary {
+  color: var(--bg);
+  background: var(--text);
 }
 
 .dropzone {
@@ -785,6 +784,8 @@ body {
 /* history panel (profiles) */
 .history-body {
   padding: 4px 6px;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .history-row {
@@ -1173,15 +1174,13 @@ body {
   --pop-picker-bg: #fff;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --pop-bg: rgba(32, 29, 27, 0.94);
-    --pop-drop-bg: #292521;
-    --pop-drop-text: #a89f92;
-    --pop-footer-text: #a89f92;
-    --pop-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
-    --pop-picker-bg: var(--sheet-bg);
-  }
+:root[data-theme="dark"] {
+  --pop-bg: rgba(32, 29, 27, 0.94);
+  --pop-drop-bg: #292521;
+  --pop-drop-text: #a89f92;
+  --pop-footer-text: #a89f92;
+  --pop-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
+  --pop-picker-bg: var(--sheet-bg);
 }
 
 html.popover-window,

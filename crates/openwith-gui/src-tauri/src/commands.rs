@@ -275,8 +275,9 @@ pub fn undo_change(
     })
 }
 
-#[tauri::command]
-pub fn show_main_window(app: AppHandle) {
+/// Bring the main window forward; shared by the popover's "Open main window"
+/// command and the dock-icon Reopen event in lib.rs.
+pub fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -288,6 +289,11 @@ pub fn show_main_window(app: AppHandle) {
 }
 
 #[tauri::command]
+pub fn show_main_window(app: AppHandle) {
+    show_main(&app);
+}
+
+#[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
@@ -295,6 +301,31 @@ pub fn quit_app(app: AppHandle) {
 #[tauri::command]
 pub fn set_tray_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
     tray::set_enabled(&app, enabled).map_err(|e| e.to_string())
+}
+
+/// Show or hide the Dock icon by switching the activation policy. Hiding the
+/// dock while keeping the tray gives a menu-bar-only app (Accessory mode).
+#[tauri::command]
+pub fn set_dock_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    let policy = if visible {
+        tauri::ActivationPolicy::Regular
+    } else {
+        tauri::ActivationPolicy::Accessory
+    };
+    // Switching Regular → Accessory deactivates the app and orders its
+    // windows out, so the toggle would appear to close the main window.
+    // Re-show and refocus it if it was visible before the switch.
+    let main_was_visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    app.set_activation_policy(policy)
+        .map_err(|e| e.to_string())?;
+    if main_was_visible && let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]

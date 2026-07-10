@@ -140,6 +140,7 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
    cargo test
    (cd crates/openwith-gui && npm run build)
    ```
+   If the release touches the GUI, also run the **GUI smoke-test checklist** below against a real `npm run tauri build` bundle — mandatory before tagging.
 4. Create a git tag: `git tag vX.Y.Z`
 5. Push the tag: `git push origin vX.Y.Z`
 6. Create GitHub release with `gh release create` using the appropriate template below.
@@ -150,7 +151,22 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
    ```
    The app is unsigned (no Apple Developer ID yet) — first launch needs `xattr -dr com.apple.quarantine /Applications/OpenWith.app` or right-click → Open.
 8. Bump the Homebrew formula in `ColeMei/homebrew-openwith` (url + sha256 of the new tag tarball). Since the workspace conversion, the formula's `install` block must use `system "cargo", "install", *std_cargo_args, "--path", "crates/openwith-cli"` (the repo root is now a virtual workspace with no installable package at `.`).
-9. Update the `openwith` cask in `ColeMei/homebrew-openwith` (url + sha256 of the .dmg release asset) with the quarantine caveat, so `brew install --cask` works for the GUI.
+9. Update the `openwith-gui` cask in `ColeMei/homebrew-openwith` (`Casks/openwith-gui.rb`, url + sha256 of the .dmg release asset) with the quarantine caveat, so `brew install --cask ColeMei/openwith/openwith-gui` works for the GUI. (The cask was named `openwith` before v0.5.2.)
+
+### GUI smoke-test checklist
+
+Run against the built .app (not just `tauri dev`) before tagging any release with GUI changes. Naive "it compiles + the window opens" testing has shipped real bugs; every control must be exercised for a *real observable effect* (confirm sets/undos with `openwith current <ext>`).
+
+- [ ] Close the main window, reopen via Dock click AND via popover "Open main window" — repeat ×3
+- [ ] Toggle "Show in menu bar" off/on ×3 — exactly one tray icon at every step
+- [ ] Hide Dock icon on/off; then turn the tray off while the Dock is hidden — Dock icon must come back
+- [ ] Appearance: flip System/Light/Dark with the popover open — both windows restyle
+- [ ] Every Settings toggle: launch at login, confirm before applying, warn on UTI conflicts, show bundle IDs, relaunch Finder, check automatically, channel, open-on-tab
+- [ ] Set a default from the Extensions sheet; verify with `openwith current <ext>`; Undo from the toast; verify again
+- [ ] Popover: extension lookup, change, Recent Changes + per-entry Undo
+- [ ] Profiles: export; import via choose AND drag-drop; dry-run preview; apply; dismiss
+- [ ] History panel scrolls at 50 entries and updates after changes
+- [ ] Check Now (updates) reports a sensible result on both channels
 
 ### Release templates
 
@@ -160,8 +176,8 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
 <one-line summary of the theme of this release>
 
 **Features**
-- <new capability 1>
-- <new capability 2>
+- CLI/TUI: <new capability 1>
+- GUI: <new capability 2>
 
 **Changes**
 - <notable behavior change or improvement>
@@ -171,8 +187,8 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
 
 **Install**
 \```bash
-brew tap ColeMei/openwith
-brew install openwith
+brew install ColeMei/openwith/openwith            # CLI + TUI
+brew install --cask ColeMei/openwith/openwith-gui # GUI app
 \```
 ```
 
@@ -182,12 +198,14 @@ brew install openwith
 <one-line summary>
 
 **Fixes**
-- <fix 1>
-- <fix 2>
+- CLI/TUI: <fix 1>
+- GUI: <fix 2>
 
 **Install**
 \```bash
-brew tap ColeMei/openwith
-brew install openwith
+brew install ColeMei/openwith/openwith            # CLI + TUI
+brew install --cask ColeMei/openwith/openwith-gui # GUI app
 \```
 ```
+
+Group bullets under CLI/TUI and GUI prefixes when a release touches both; drop the prefix when a release is single-surface.

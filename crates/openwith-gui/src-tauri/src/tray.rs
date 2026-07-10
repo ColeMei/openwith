@@ -1,32 +1,28 @@
-use std::sync::Mutex;
-
-use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_positioner::{Position, WindowExt};
 
-/// The live tray icon, if the "Show in menu bar" setting is on.
-#[derive(Default)]
-pub struct TrayState(pub Mutex<Option<TrayIcon>>);
+const TRAY_ID: &str = "openwith-tray";
 
+/// Add or remove the menu-bar icon. The app's tray registry is the source of
+/// truth: `TrayIconBuilder::build` registers the icon there, so removal must
+/// go through `remove_tray_by_id` — dropping a handle alone leaks the icon.
 pub fn set_enabled(app: &AppHandle, enabled: bool) -> tauri::Result<()> {
-    let state = app.state::<TrayState>();
-    let mut slot = state.0.lock().expect("tray state poisoned");
     if enabled {
-        if slot.is_none() {
-            *slot = Some(build(app)?);
+        if app.tray_by_id(TRAY_ID).is_none() {
+            build(app)?;
         }
-    } else if let Some(tray) = slot.take() {
-        // Dropping the handle removes the icon from the menu bar.
-        drop(tray);
+    } else {
+        app.remove_tray_by_id(TRAY_ID);
     }
     Ok(())
 }
 
-fn build(app: &AppHandle) -> tauri::Result<TrayIcon> {
+fn build(app: &AppHandle) -> tauri::Result<()> {
     // Monochrome template image: macOS recolors it for light/dark menu bars
     // and the pressed state, like native status items.
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
-    TrayIconBuilder::with_id("openwith-tray")
+    TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("OpenWith")
         .icon(icon)
         .icon_as_template(true)
@@ -41,7 +37,8 @@ fn build(app: &AppHandle) -> tauri::Result<TrayIcon> {
                 toggle_popover(tray.app_handle());
             }
         })
-        .build(app)
+        .build(app)?;
+    Ok(())
 }
 
 pub fn toggle_popover(app: &AppHandle) {

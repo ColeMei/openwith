@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 /// Keep the log bounded; older events fall off the front.
 const MAX_EVENTS: usize = 500;
 
+/// Events older than this are pruned on every write.
+const MAX_AGE_SECS: u64 = 90 * 24 * 60 * 60;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct HistoryEvent {
     /// "set" | "set_scheme" | "export" | "import"
@@ -87,6 +90,8 @@ fn load(path: &Path) -> Vec<HistoryEvent> {
 pub fn record_at(path: &Path, event: HistoryEvent) -> Result<()> {
     let mut events = load(path);
     events.push(event);
+    let cutoff = now_secs().saturating_sub(MAX_AGE_SECS);
+    events.retain(|e| e.timestamp >= cutoff);
     if events.len() > MAX_EVENTS {
         events.drain(0..events.len() - MAX_EVENTS);
     }
@@ -147,6 +152,12 @@ mod tests {
         ))
     }
 
+    /// Test timestamps are offsets from now: `record_at` prunes anything older
+    /// than MAX_AGE_SECS, so absolute small values would vanish on write.
+    fn ts(offset: u64) -> u64 {
+        now_secs() - 10_000 + offset
+    }
+
     fn event(kind: &str, key: &str, ts: u64) -> HistoryEvent {
         HistoryEvent {
             kind: kind.into(),
@@ -162,8 +173,8 @@ mod tests {
         let path = temp_log("roundtrip");
         let _ = std::fs::remove_file(&path);
 
-        record_at(&path, event("set", ".md", 1)).unwrap();
-        record_at(&path, event("export", "openwith.toml", 2)).unwrap();
+        record_at(&path, event("set", ".md", ts(1))).unwrap();
+        record_at(&path, event("export", "openwith.toml", ts(2))).unwrap();
 
         let events = recent_at(&path, 10).unwrap();
         assert_eq!(events.len(), 2);
@@ -186,7 +197,7 @@ mod tests {
 
         std::fs::write(&path, "not json").unwrap();
         assert!(recent_at(&path, 5).unwrap().is_empty());
-        record_at(&path, event("import", "a.toml", 3)).unwrap();
+        record_at(&path, event("import", "a.toml", ts(3))).unwrap();
         assert_eq!(recent_at(&path, 5).unwrap().len(), 1);
 
         std::fs::remove_file(&path).unwrap();
@@ -197,20 +208,20 @@ mod tests {
         let path = temp_log("undone");
         let _ = std::fs::remove_file(&path);
 
-        let mut set = event("set", ".md", 10);
+        let mut set = event("set", ".md", ts(10));
         set.old = Some("a".into());
         set.new = Some("b".into());
         record_at(&path, set).unwrap();
-        record_at(&path, event("export", "x.toml", 11)).unwrap();
+        record_at(&path, event("export", "x.toml", ts(11))).unwrap();
 
         assert!(recent_at(&path, 5).unwrap()[1].undoable());
-        mark_undone_at(&path, "set", ".md", 10, Some("b")).unwrap();
+        mark_undone_at(&path, "set", ".md", ts(10), Some("b")).unwrap();
 
         let events = recent_at(&path, 5).unwrap();
         assert!(events[1].undone);
         assert!(!events[1].undoable());
         // unknown event → silent no-op
-        mark_undone_at(&path, "set", ".zzz", 99, None).unwrap();
+        mark_undone_at(&path, "set", ".zzz", ts(99), None).unwrap();
 
         std::fs::remove_file(&path).unwrap();
     }
@@ -222,17 +233,17 @@ mod tests {
 
         // A set and another event in the same second, the newer one already
         // undone — marking must flag the still-active older twin.
-        let mut a = event("set", ".md", 10);
+        let mut a = event("set", ".md", ts(10));
         a.old = Some("typora".into());
         a.new = Some("textedit".into());
-        let mut b = event("set", ".md", 10);
+        let mut b = event("set", ".md", ts(10));
         b.old = Some("textedit".into());
         b.new = Some("typora".into());
         b.undone = true;
         record_at(&path, a).unwrap();
         record_at(&path, b).unwrap();
 
-        mark_undone_at(&path, "set", ".md", 10, Some("textedit")).unwrap();
+        mark_undone_at(&path, "set", ".md", ts(10), Some("textedit")).unwrap();
 
         let events = recent_at(&path, 5).unwrap();
         assert!(events.iter().all(|e| e.undone));
@@ -245,12 +256,34 @@ mod tests {
     fn log_is_capped() {
         let path = temp_log("cap");
         let _ = std::fs::remove_file(&path);
+        // Pin the base once: the write loop takes real time, and a moving
+        // now_secs() would shift ts() between the loop and the assertion.
+        let base = ts(0);
         for i in 0..(MAX_EVENTS as u64 + 20) {
-            record_at(&path, event("set", ".md", i)).unwrap();
+            record_at(&path, event("set", ".md", base + i)).unwrap();
         }
         let events = recent_at(&path, MAX_EVENTS + 50).unwrap();
         assert_eq!(events.len(), MAX_EVENTS);
-        assert_eq!(events[0].timestamp, MAX_EVENTS as u64 + 19);
+        assert_eq!(events[0].timestamp, base + MAX_EVENTS as u64 + 19);
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn old_events_are_pruned_on_write() {
+        let path = temp_log("prune");
+        let _ = std::fs::remove_file(&path);
+
+        // Seed the file directly: record_at would refuse to keep stale events.
+        let stale = event("set", ".old", now_secs() - MAX_AGE_SECS - 60);
+        let fresh = event("set", ".fresh", ts(1));
+        std::fs::write(&path, serde_json::to_string(&vec![stale, fresh]).unwrap()).unwrap();
+
+        record_at(&path, event("set", ".new", ts(2))).unwrap();
+
+        let events = recent_at(&path, 10).unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|e| e.key != ".old"));
 
         std::fs::remove_file(&path).unwrap();
     }

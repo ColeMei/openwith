@@ -26,11 +26,15 @@
 
 ## Install
 
-Homebrew is the recommended install path:
+OpenWith ships in two flavors that share the same engine and change history — install either, or both:
+
+- **`openwith` (formula)** — the `openwith` command: CLI plus interactive TUI. Pick this if you live in the terminal or want to script/dotfile your associations.
+- **`openwith-gui` (cask)** — OpenWith.app: a native windowed app with a menu-bar popover. Pick this if you'd rather point and click.
+
+### CLI / TUI
 
 ```bash
-brew tap ColeMei/openwith
-brew install openwith
+brew install ColeMei/openwith/openwith
 ```
 
 If you prefer installing from source with Cargo, install Rust via [rustup](https://rustup.rs), then run:
@@ -47,12 +51,11 @@ cargo install --path crates/openwith-cli
 
 ### GUI app
 
-The native GUI installs as a Homebrew cask (from v0.5.0):
-
 ```bash
-brew tap ColeMei/openwith
-brew install --cask openwith
+brew install --cask ColeMei/openwith/openwith-gui
 ```
+
+Or download the `.dmg` from the [latest release](https://github.com/ColeMei/openwith/releases).
 
 The app is currently unsigned (no Apple Developer ID), so on first launch macOS will
 warn about an unidentified developer — right-click the app → Open, or clear the
@@ -63,6 +66,8 @@ xattr -dr com.apple.quarantine /Applications/OpenWith.app
 ```
 
 To build it from source instead: `cd crates/openwith-gui && npm install && npm run tauri build`.
+
+> Installed the cask as `openwith` (pre-v0.5.2)? It was renamed: `brew uninstall --cask openwith && brew install --cask ColeMei/openwith/openwith-gui`.
 
 ## Quick Start
 
