@@ -42,6 +42,7 @@ pub fn run(path: &str, dry_run: bool) -> Result<()> {
             )),
             timestamp: history::now_secs(),
             source: "cli".into(),
+            ..Default::default()
         });
     }
 

@@ -44,6 +44,7 @@ pub fn run(ext: &str, app_name: &str, scheme: bool) -> Result<()> {
         detail: None,
         timestamp: history::now_secs(),
         source: "cli".into(),
+        ..Default::default()
     });
 
     let was = previous
@@ -90,6 +91,7 @@ fn run_scheme(apps: &[AppInfo], scheme: &str, bundle_id: &str, display_name: &st
         detail: None,
         timestamp: history::now_secs(),
         source: "cli".into(),
+        ..Default::default()
     });
 
     let was = previous

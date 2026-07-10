@@ -132,6 +132,7 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
                     detail: None,
                     timestamp: history::now_secs(),
                     source: "import".into(),
+                    ..Default::default()
                 });
                 applied.push((ext_key.clone(), display_name, previous));
             }
@@ -181,6 +182,7 @@ pub fn import_associations(config: &Config, apps: &[AppInfo], dry_run: bool) -> 
                     detail: None,
                     timestamp: history::now_secs(),
                     source: "import".into(),
+                    ..Default::default()
                 });
                 applied.push((display_key, display_name, previous));
             }

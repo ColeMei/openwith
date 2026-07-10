@@ -4,12 +4,10 @@ use openwith_core::history::{self, HistoryEvent};
 use openwith_core::{launchservices, scanner, uti};
 
 /// Revert the most recent recorded default change (from CLI, GUI, or import).
+/// Undo consumes the event: it's marked undone and won't be offered again.
 pub fn run(force: bool) -> Result<()> {
     let events = history::recent(100)?;
-    let Some(event) = events
-        .iter()
-        .find(|e| matches!(e.kind.as_str(), "set" | "set_scheme") && e.old.is_some())
-    else {
+    let Some(event) = events.iter().find(|e| e.undoable()) else {
         println!("Nothing to undo — no recorded change has a previous default.");
         return Ok(());
     };
@@ -40,14 +38,21 @@ pub fn run(force: bool) -> Result<()> {
 
     apply_revert(event, old)?;
 
+    let _ = history::mark_undone(
+        &event.kind,
+        &event.key,
+        event.timestamp,
+        event.new.as_deref(),
+    );
     let _ = history::record(HistoryEvent {
         kind: event.kind.clone(),
         key: event.key.clone(),
         old: event.new.clone(),
         new: Some(old.to_string()),
-        detail: None,
         timestamp: history::now_secs(),
         source: "cli".into(),
+        is_undo: true,
+        ..Default::default()
     });
 
     println!(

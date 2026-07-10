@@ -47,6 +47,7 @@ pub fn run() {
             commands::search_extensions,
             commands::get_ext_picker,
             commands::get_recent_changes,
+            commands::undo_change,
             commands::show_main_window,
             commands::quit_app,
             commands::set_tray_enabled,

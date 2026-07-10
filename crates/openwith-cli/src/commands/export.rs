@@ -30,6 +30,7 @@ pub fn run(output: Option<&str>) -> Result<()> {
                 )),
                 timestamp: history::now_secs(),
                 source: "cli".into(),
+                ..Default::default()
             });
             println!(
                 "Exported {} associations and {} scheme handlers to {}",

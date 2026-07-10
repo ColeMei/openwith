@@ -18,6 +18,8 @@ pub fn run(limit: usize, json: bool) -> Result<()> {
                     "detail": e.detail,
                     "timestamp": e.timestamp,
                     "source": e.source,
+                    "undone": e.undone,
+                    "is_undo": e.is_undo,
                 })
             })
             .collect();
@@ -51,7 +53,9 @@ fn describe(event: &HistoryEvent, old_name: Option<String>, new_name: Option<Str
         "set" | "set_scheme" => {
             let new = new_name.unwrap_or_else(|| "?".into());
             let was = old_name.map(|o| format!(" (was {o})")).unwrap_or_default();
-            format!("set {} → {}{}", event.key, new, was)
+            let verb = if event.is_undo { "undid: set" } else { "set" };
+            let reverted = if event.undone { " · reverted" } else { "" };
+            format!("{} {} → {}{}{}", verb, event.key, new, was, reverted)
         }
         "export" => format!(
             "exported {}{}",

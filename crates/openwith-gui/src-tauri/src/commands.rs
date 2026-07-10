@@ -69,11 +69,15 @@ pub struct SnapshotDto {
 #[derive(Serialize)]
 pub struct SetResultDto {
     pub key: String,
+    pub kind: String,
     pub app_name: String,
     pub bundle_id: String,
     pub previous_app_name: Option<String>,
     pub unchanged: bool,
     pub siblings: Vec<String>,
+    /// Timestamp of the recorded history event; lets the frontend undo this
+    /// exact change (0 when nothing was recorded).
+    pub timestamp: u64,
 }
 
 #[derive(Serialize)]
@@ -191,6 +195,7 @@ pub fn get_ext_picker(
 }
 
 /// Recent set events for the popover's Recent Changes list, names resolved.
+/// Undo-stack view: undone changes and the reverts themselves are hidden.
 #[tauri::command]
 pub fn get_recent_changes(
     limit: usize,
@@ -200,7 +205,7 @@ pub fn get_recent_changes(
     let events = history::recent(100).map_err(|e| e.to_string())?;
     Ok(events
         .into_iter()
-        .filter(|e| matches!(e.kind.as_str(), "set" | "set_scheme"))
+        .filter(|e| matches!(e.kind.as_str(), "set" | "set_scheme") && !e.undone && !e.is_undo)
         .take(limit)
         .map(|e| RecentChangeDto {
             kind: e.kind,
@@ -214,6 +219,60 @@ pub fn get_recent_changes(
             timestamp: e.timestamp,
         })
         .collect())
+}
+
+/// Undo one recorded change: restore the previous handler, mark the original
+/// event consumed, and record the revert as an is_undo event.
+#[tauri::command]
+pub fn undo_change(
+    kind: String,
+    key: String,
+    timestamp: u64,
+    cache: State<'_, AppsCache>,
+) -> Result<SetResultDto, String> {
+    let apps = cached_apps(&cache)?;
+    let events = history::recent(500).map_err(|e| e.to_string())?;
+    let event = events
+        .iter()
+        .find(|e| e.kind == kind && e.key == key && e.timestamp == timestamp && e.undoable())
+        .ok_or("that change is no longer undoable")?;
+    let old = event.old.clone().expect("undoable implies old");
+    let new = event.new.clone().unwrap_or_default();
+
+    let siblings = if kind == "set_scheme" {
+        let scheme = key.trim_end_matches("://");
+        launchservices::set_default_scheme_handler(&old, scheme).map_err(|e| e.to_string())?;
+        Vec::new()
+    } else {
+        let ext = key.trim_start_matches('.');
+        let uti_str = uti::uti_for_extension(ext).map_err(|e| e.to_string())?;
+        launchservices::set_default(&old, &uti_str).map_err(|e| e.to_string())?;
+        uti::extensions_sharing_uti(ext, &uti_str, &scanner::all_extensions(&apps))
+    };
+
+    let _ = history::mark_undone(&kind, &key, timestamp, event.new.as_deref());
+    let now = history::now_secs();
+    record_history(HistoryEvent {
+        kind: kind.clone(),
+        key: key.clone(),
+        old: event.new.clone(),
+        new: Some(old.clone()),
+        timestamp: now,
+        source: "gui".into(),
+        is_undo: true,
+        ..Default::default()
+    });
+
+    Ok(SetResultDto {
+        key,
+        kind,
+        app_name: scanner::resolve_name(&apps, &old),
+        bundle_id: old,
+        previous_app_name: Some(scanner::resolve_name(&apps, &new)),
+        unchanged: false,
+        siblings,
+        timestamp: now,
+    })
 }
 
 #[tauri::command]
@@ -242,26 +301,35 @@ pub fn set_tray_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
 pub struct HistoryEventDto {
     pub kind: String,
     pub key: String,
-    pub old: Option<String>,
-    pub new: Option<String>,
+    pub old_name: Option<String>,
+    pub new_name: Option<String>,
     pub detail: Option<String>,
     pub timestamp: u64,
     pub source: String,
+    pub undone: bool,
+    pub is_undo: bool,
 }
 
+/// Full ledger for the Profiles HISTORY panel, bundle IDs resolved to names.
 #[tauri::command]
-pub fn get_history(limit: usize) -> Result<Vec<HistoryEventDto>, String> {
+pub fn get_history(
+    limit: usize,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<HistoryEventDto>, String> {
+    let apps = cached_apps(&cache)?;
     let events = history::recent(limit).map_err(|e| e.to_string())?;
     Ok(events
         .into_iter()
         .map(|e| HistoryEventDto {
             kind: e.kind,
             key: e.key,
-            old: e.old,
-            new: e.new,
+            old_name: e.old.as_ref().map(|b| scanner::resolve_name(&apps, b)),
+            new_name: e.new.as_ref().map(|b| scanner::resolve_name(&apps, b)),
             detail: e.detail,
             timestamp: e.timestamp,
             source: e.source,
+            undone: e.undone,
+            is_undo: e.is_undo,
         })
         .collect())
 }
@@ -367,24 +435,27 @@ pub fn set_default(
     {
         return Ok(SetResultDto {
             key: format!(".{ext}"),
+            kind: "set".into(),
             app_name: display_name,
             bundle_id,
             previous_app_name: None,
             unchanged: true,
             siblings: Vec::new(),
+            timestamp: 0,
         });
     }
 
     launchservices::set_default(&bundle_id, &uti_str).map_err(|e| e.to_string())?;
 
+    let timestamp = history::now_secs();
     record_history(HistoryEvent {
         kind: "set".into(),
         key: format!(".{ext}"),
         old: previous.clone(),
         new: Some(bundle_id.clone()),
-        detail: None,
-        timestamp: history::now_secs(),
+        timestamp,
         source: "gui".into(),
+        ..Default::default()
     });
 
     let previous_app_name = previous.map(|p| scanner::resolve_name(&apps, &p));
@@ -394,11 +465,13 @@ pub fn set_default(
 
     Ok(SetResultDto {
         key: format!(".{ext}"),
+        kind: "set".into(),
         app_name: display_name,
         bundle_id,
         previous_app_name,
         unchanged: false,
         siblings,
+        timestamp,
     })
 }
 
@@ -426,35 +499,40 @@ pub fn set_scheme_default(
     {
         return Ok(SetResultDto {
             key: format!("{scheme}://"),
+            kind: "set_scheme".into(),
             app_name: display_name,
             bundle_id,
             previous_app_name: None,
             unchanged: true,
             siblings: Vec::new(),
+            timestamp: 0,
         });
     }
 
     launchservices::set_default_scheme_handler(&bundle_id, &scheme).map_err(|e| e.to_string())?;
 
+    let timestamp = history::now_secs();
     record_history(HistoryEvent {
         kind: "set_scheme".into(),
         key: format!("{scheme}://"),
         old: previous.clone(),
         new: Some(bundle_id.clone()),
-        detail: None,
-        timestamp: history::now_secs(),
+        timestamp,
         source: "gui".into(),
+        ..Default::default()
     });
 
     let previous_app_name = previous.map(|p| scanner::resolve_name(&apps, &p));
 
     Ok(SetResultDto {
         key: format!("{scheme}://"),
+        kind: "set_scheme".into(),
         app_name: display_name,
         bundle_id,
         previous_app_name,
         unchanged: false,
         siblings: Vec::new(),
+        timestamp,
     })
 }
 
@@ -485,6 +563,7 @@ pub fn export_toml(
             )),
             timestamp: history::now_secs(),
             source: "gui".into(),
+            ..Default::default()
         });
     }
 
@@ -524,6 +603,7 @@ pub fn import_toml(
             )),
             timestamp: history::now_secs(),
             source: "gui".into(),
+            ..Default::default()
         });
     }
 

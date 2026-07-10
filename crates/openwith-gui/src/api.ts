@@ -29,11 +29,13 @@ export interface SnapshotDto {
 
 export interface SetResultDto {
   key: string;
+  kind: "set" | "set_scheme";
   app_name: string;
   bundle_id: string;
   previous_app_name: string | null;
   unchanged: boolean;
   siblings: string[];
+  timestamp: number;
 }
 
 export interface ExportResultDto {
@@ -83,11 +85,13 @@ export interface RecentChangeDto {
 export interface HistoryEventDto {
   kind: "set" | "set_scheme" | "export" | "import";
   key: string;
-  old: string | null;
-  new: string | null;
+  old_name: string | null;
+  new_name: string | null;
   detail: string | null;
   timestamp: number;
   source: string;
+  undone: boolean;
+  is_undo: boolean;
 }
 
 export const api = {
@@ -110,6 +114,8 @@ export const api = {
     invoke<PickerAppDto[]>("get_ext_picker", { ext }),
   getRecentChanges: (limit: number) =>
     invoke<RecentChangeDto[]>("get_recent_changes", { limit }),
+  undoChange: (kind: string, key: string, timestamp: number) =>
+    invoke<SetResultDto>("undo_change", { kind, key, timestamp }),
   showMainWindow: () => invoke<void>("show_main_window"),
   quitApp: () => invoke<void>("quit_app"),
   setTrayEnabled: (enabled: boolean) =>

@@ -799,6 +799,11 @@ body {
   background: var(--field-bg);
 }
 
+.history-row.undone .history-text {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
 .history-icon {
   flex: none;
   font-size: 11px;

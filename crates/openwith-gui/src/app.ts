@@ -222,25 +222,41 @@ function historyDate(timestamp: number): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function historyRow(e: import("./api").HistoryEventDto): string {
+  let icon: string;
+  let iconClass = "";
+  let text: string;
+  if (e.kind === "export") {
+    icon = "↓";
+    text = `Exported <span class="mono">${escapeHtml(e.key)}</span>`;
+  } else if (e.kind === "import") {
+    icon = "✓";
+    iconClass = "ok";
+    text = `Imported <span class="mono">${escapeHtml(e.key)}</span>`;
+  } else if (e.is_undo) {
+    icon = "↩";
+    text = `Undid <span class="mono">${escapeHtml(e.key)}</span> → ${escapeHtml(e.new_name ?? "?")}`;
+  } else {
+    icon = "→";
+    iconClass = e.undone ? "" : "ok";
+    const was = e.old_name ? ` <span class="history-detail">(was ${escapeHtml(e.old_name)})</span>` : "";
+    text = `Set <span class="mono">${escapeHtml(e.key)}</span> → ${escapeHtml(e.new_name ?? "?")}${was}`;
+  }
+  const detail = e.detail ? escapeHtml(e.detail) : e.undone ? "reverted" : "";
+  return `
+  <div class="history-row ${e.undone ? "undone" : ""}">
+    <span class="history-icon ${iconClass}">${icon}</span>
+    <span class="history-text">${text}</span>
+    <span class="history-detail">${detail}</span>
+    <span class="history-date">${escapeHtml(historyDate(e.timestamp))}</span>
+  </div>`;
+}
+
 function renderHistory(): string {
-  const events = state.history.filter(
-    (e) => e.kind === "export" || e.kind === "import",
-  );
   const rows =
-    events.length > 0
-      ? events
-          .map((e) => {
-            const isImport = e.kind === "import";
-            return `
-          <div class="history-row">
-            <span class="history-icon ${isImport ? "ok" : ""}">${isImport ? "✓" : "↓"}</span>
-            <span class="history-text">${isImport ? "Imported" : "Exported"} <span class="mono">${escapeHtml(e.key)}</span></span>
-            <span class="history-detail">${escapeHtml(e.detail ?? "")}</span>
-            <span class="history-date">${escapeHtml(historyDate(e.timestamp))}</span>
-          </div>`;
-          })
-          .join("")
-      : `<div class="history-row"><span class="italic-muted">No exports or imports yet.</span></div>`;
+    state.history.length > 0
+      ? state.history.map(historyRow).join("")
+      : `<div class="history-row"><span class="italic-muted">Changes, exports, and imports will appear here.</span></div>`;
 
   return `
   <div class="panel-block">
@@ -610,18 +626,20 @@ function buildToast(result: SetResultDto) {
       : "";
   return {
     text: `Set ${result.key} → ${result.app_name}${was}${extra}`,
-    undo: result.previous_app_name
-      ? () => undoSet(result.key, result.previous_app_name!)
-      : undefined,
+    undo:
+      result.previous_app_name && result.timestamp > 0
+        ? () => undoSet(result)
+        : undefined,
   };
 }
 
-async function undoSet(key: string, previousAppName: string) {
+async function undoSet(setResult: SetResultDto) {
   try {
-    const isScheme = key.endsWith("://");
-    const result = isScheme
-      ? await api.setSchemeDefault(key.slice(0, -3), previousAppName)
-      : await api.setDefault(key.slice(1), previousAppName);
+    const result = await api.undoChange(
+      setResult.kind,
+      setResult.key,
+      setResult.timestamp,
+    );
     applySetResult(result, false);
     state.toast = { text: `Reverted ${result.key} → ${result.app_name}` };
     afterApply();

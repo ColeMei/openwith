@@ -186,11 +186,9 @@ async function undo(index: number) {
   const entry = state.recent[index];
   if (!entry?.old_bundle_id) return;
   try {
-    if (entry.kind === "set_scheme") {
-      await api.setSchemeDefault(entry.key.replace(/:\/\/$/, ""), entry.old_bundle_id);
-    } else {
-      await api.setDefault(entry.key.replace(/^\./, ""), entry.old_bundle_id);
-    }
+    // Consumes the entry: it disappears from this list instead of piling
+    // a compensating row on top.
+    await api.undoChange(entry.kind, entry.key, entry.timestamp);
   } catch {
     // leave the list as-is; the refresh below shows the real state
   }
