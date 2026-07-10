@@ -23,6 +23,15 @@
 
 **OpenWith** is a small Rust-based macOS tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs. It ships as a terminal tool (CLI + interactive TUI) and a native GUI app, both driven by the same Rust core.
 
+<p align="center">
+  <img src="artifacts/gui-extensions-light.png" alt="OpenWith GUI — Extensions view: every file extension with its current default app, click a row to change it" width="760">
+</p>
+
+<p align="center">
+  <img src="artifacts/gui-apps-light.png" alt="Apps view — per-app defaults with one-click claiming of supported extensions" width="63%">
+  <img src="artifacts/gui-menubar-popover.png" alt="Menu bar popover — quick extension lookup, change, and undo" width="26%">
+</p>
+
 
 ## Install
 

@@ -167,6 +167,7 @@ Run against the built .app (not just `tauri dev`) before tagging any release wit
 - [ ] Profiles: export; import via choose AND drag-drop; dry-run preview; apply; dismiss
 - [ ] History panel scrolls at 50 entries and updates after changes
 - [ ] Check Now (updates) reports a sensible result on both channels
+- [ ] README screenshots (from the design prototype, `artifacts/gui-*.png`) still match the shipped UI — recapture if the UI changed
 
 ### Release templates
 
