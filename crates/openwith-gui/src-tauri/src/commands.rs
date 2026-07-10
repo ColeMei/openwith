@@ -1,11 +1,38 @@
+use std::sync::{Arc, Mutex};
+
 use serde::Serialize;
+use tauri::{AppHandle, Manager, State};
 
 use openwith_core::history::{self, HistoryEvent};
+use openwith_core::types::AppInfo;
 use openwith_core::{config, launchservices, listing, scanner, uti};
+
+use crate::tray;
 
 /// History writes are best-effort — never fail the change that triggered them.
 fn record_history(event: HistoryEvent) {
     let _ = history::record(event);
+}
+
+/// Scanned apps, shared between the main window and the menu-bar popover so
+/// popover lookups don't pay the multi-second scan.
+#[derive(Default)]
+pub struct AppsCache(Mutex<Option<Arc<Vec<AppInfo>>>>);
+
+fn cached_apps(cache: &State<'_, AppsCache>) -> Result<Arc<Vec<AppInfo>>, String> {
+    let mut slot = cache.0.lock().expect("apps cache poisoned");
+    if let Some(apps) = slot.as_ref() {
+        return Ok(Arc::clone(apps));
+    }
+    let apps = Arc::new(scanner::scan_all_apps().map_err(|e| e.to_string())?);
+    *slot = Some(Arc::clone(&apps));
+    Ok(apps)
+}
+
+fn refresh_apps(cache: &State<'_, AppsCache>) -> Result<Arc<Vec<AppInfo>>, String> {
+    let apps = Arc::new(scanner::scan_all_apps().map_err(|e| e.to_string())?);
+    *cache.0.lock().expect("apps cache poisoned") = Some(Arc::clone(&apps));
+    Ok(apps)
 }
 
 #[derive(Serialize)]
@@ -78,6 +105,140 @@ pub struct ImportSkippedDto {
 }
 
 #[derive(Serialize)]
+pub struct ExtMatchDto {
+    pub ext: String,
+    pub app_name: Option<String>,
+    pub bundle_id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct PickerAppDto {
+    pub name: String,
+    pub bundle_id: String,
+    pub current: bool,
+}
+
+#[derive(Serialize)]
+pub struct RecentChangeDto {
+    pub kind: String,
+    pub key: String,
+    pub app_name: String,
+    pub old_bundle_id: Option<String>,
+    pub timestamp: u64,
+}
+
+/// Prefix-match known extensions for the menu-bar popover, newest defaults
+/// resolved live (cheap: one Launch Services query per shown row).
+#[tauri::command]
+pub fn search_extensions(
+    query: String,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<ExtMatchDto>, String> {
+    let q = query.trim().trim_start_matches('.').to_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let apps = cached_apps(&cache)?;
+    let mut exts = scanner::all_extensions(&apps);
+    exts.retain(|e| e.starts_with(&q));
+    exts.sort();
+    exts.truncate(3);
+
+    Ok(exts
+        .into_iter()
+        .map(|ext| {
+            let bundle_id = launchservices::query_default_bundle_id(&ext).ok().flatten();
+            let app_name = bundle_id.as_ref().map(|b| scanner::resolve_name(&apps, b));
+            ExtMatchDto {
+                ext,
+                app_name,
+                bundle_id,
+            }
+        })
+        .collect())
+}
+
+/// Apps offered in the popover's picker for one extension: declared
+/// supporters, or every app when nothing declares it.
+#[tauri::command]
+pub fn get_ext_picker(
+    ext: String,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<PickerAppDto>, String> {
+    let ext = ext.trim_start_matches('.').to_lowercase();
+    let apps = cached_apps(&cache)?;
+    let current = launchservices::query_default_bundle_id(&ext).ok().flatten();
+
+    let mut source: Vec<&AppInfo> = apps
+        .iter()
+        .filter(|a| a.extensions.contains(&ext))
+        .collect();
+    if source.is_empty() {
+        source = apps.iter().collect();
+    }
+    source.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(source
+        .into_iter()
+        .map(|a| PickerAppDto {
+            name: a.name.clone(),
+            bundle_id: a.bundle_id.clone(),
+            current: current
+                .as_deref()
+                .is_some_and(|c| c.eq_ignore_ascii_case(&a.bundle_id)),
+        })
+        .collect())
+}
+
+/// Recent set events for the popover's Recent Changes list, names resolved.
+#[tauri::command]
+pub fn get_recent_changes(
+    limit: usize,
+    cache: State<'_, AppsCache>,
+) -> Result<Vec<RecentChangeDto>, String> {
+    let apps = cached_apps(&cache)?;
+    let events = history::recent(100).map_err(|e| e.to_string())?;
+    Ok(events
+        .into_iter()
+        .filter(|e| matches!(e.kind.as_str(), "set" | "set_scheme"))
+        .take(limit)
+        .map(|e| RecentChangeDto {
+            kind: e.kind,
+            key: e.key,
+            app_name: e
+                .new
+                .as_ref()
+                .map(|b| scanner::resolve_name(&apps, b))
+                .unwrap_or_else(|| "?".into()),
+            old_bundle_id: e.old,
+            timestamp: e.timestamp,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn show_main_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    if let Some(popover) = app.get_webview_window("menubar") {
+        let _ = popover.hide();
+    }
+}
+
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+pub fn set_tray_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    tray::set_enabled(&app, enabled).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
 pub struct HistoryEventDto {
     pub kind: String,
     pub key: String,
@@ -140,8 +301,8 @@ pub fn relaunch_finder() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_snapshot() -> Result<SnapshotDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn get_snapshot(cache: State<'_, AppsCache>) -> Result<SnapshotDto, String> {
+    let apps = refresh_apps(&cache)?;
 
     let app_dtos = apps
         .iter()
@@ -187,8 +348,12 @@ pub fn get_snapshot() -> Result<SnapshotDto, String> {
 }
 
 #[tauri::command]
-pub fn set_default(ext: String, app: String) -> Result<SetResultDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn set_default(
+    ext: String,
+    app: String,
+    cache: State<'_, AppsCache>,
+) -> Result<SetResultDto, String> {
+    let apps = cached_apps(&cache)?;
     let (bundle_id, display_name) =
         scanner::resolve_app_or_bundle_id(&apps, &app).map_err(|e| e.to_string())?;
 
@@ -238,8 +403,12 @@ pub fn set_default(ext: String, app: String) -> Result<SetResultDto, String> {
 }
 
 #[tauri::command]
-pub fn set_scheme_default(scheme: String, app: String) -> Result<SetResultDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn set_scheme_default(
+    scheme: String,
+    app: String,
+    cache: State<'_, AppsCache>,
+) -> Result<SetResultDto, String> {
+    let apps = cached_apps(&cache)?;
     let (bundle_id, display_name) =
         scanner::resolve_app_or_bundle_id(&apps, &app).map_err(|e| e.to_string())?;
 
@@ -290,8 +459,11 @@ pub fn set_scheme_default(scheme: String, app: String) -> Result<SetResultDto, S
 }
 
 #[tauri::command]
-pub fn export_toml(path: Option<String>) -> Result<ExportResultDto, String> {
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+pub fn export_toml(
+    path: Option<String>,
+    cache: State<'_, AppsCache>,
+) -> Result<ExportResultDto, String> {
+    let apps = cached_apps(&cache)?;
     let (cfg, display_names) = config::export_associations(&apps).map_err(|e| e.to_string())?;
     let toml_str = config::to_toml(&cfg, &display_names).map_err(|e| e.to_string())?;
 
@@ -324,11 +496,15 @@ pub fn export_toml(path: Option<String>) -> Result<ExportResultDto, String> {
 }
 
 #[tauri::command]
-pub fn import_toml(path: String, dry_run: bool) -> Result<ImportPreviewDto, String> {
+pub fn import_toml(
+    path: String,
+    dry_run: bool,
+    cache: State<'_, AppsCache>,
+) -> Result<ImportPreviewDto, String> {
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let cfg = config::from_toml(&content).map_err(|e| e.to_string())?;
 
-    let apps = scanner::scan_all_apps().map_err(|e| e.to_string())?;
+    let apps = cached_apps(&cache)?;
     let result = config::import_associations(&cfg, &apps, dry_run);
 
     if !dry_run {

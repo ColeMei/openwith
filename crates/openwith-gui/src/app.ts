@@ -1,6 +1,11 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as autostartEnabled,
+} from "@tauri-apps/plugin-autostart";
+import {
   ask,
   open as openDialog,
   save as saveDialog,
@@ -360,8 +365,8 @@ function renderSettings(): string {
     <div class="settings-grid">
       <div class="settings-card">
         <div class="settings-card-head">GENERAL</div>
-        ${toggleRow("launchAtLogin", s.launchAtLogin, "Launch at login", "Arrives with the menu bar panel in v0.5.1", true)}
-        ${toggleRow("showMenuBar", s.showMenuBar, "Show in menu bar", "Quick-access panel with ⌥⌘O — arrives in v0.5.1", true)}
+        ${toggleRow("launchAtLogin", s.launchAtLogin, "Launch at login", "Start OpenWith when you log in")}
+        ${toggleRow("showMenuBar", s.showMenuBar, "Show in menu bar", "Quick-access panel with ⌥⌘O")}
         <div class="settings-row">
           <span><span class="label">Open on tab</span><span class="desc">Which view the main window starts on</span></span>
           ${segmented("set-open-tab", "tab", [{ key: "extensions", label: "Extensions" }, { key: "apps", label: "Apps" }], s.openOnTab)}
@@ -922,6 +927,8 @@ root.addEventListener("click", (e) => {
       break;
     case "toggle": {
       const key = target.dataset.toggle as
+        | "launchAtLogin"
+        | "showMenuBar"
         | "confirmBeforeApplying"
         | "warnUtiConflicts"
         | "showBundleIds"
@@ -929,6 +936,14 @@ root.addEventListener("click", (e) => {
         | "autoUpdateCheck";
       state.settings[key] = !state.settings[key];
       saveSettings();
+      if (key === "launchAtLogin") {
+        void applyLaunchAtLogin(state.settings.launchAtLogin);
+      } else if (key === "showMenuBar") {
+        api.setTrayEnabled(state.settings.showMenuBar).catch(() => {
+          state.toast = { text: "Couldn't update the menu bar icon" };
+          render();
+        });
+      }
       render();
       break;
     }
@@ -1008,8 +1023,32 @@ getCurrentWebview().onDragDropEvent((event) => {
 
 // ---------- bootstrap ----------
 
+async function applyLaunchAtLogin(wanted: boolean) {
+  try {
+    if (wanted) await enableAutostart();
+    else await disableAutostart();
+  } catch {
+    // reflect reality back into the toggle rather than showing a lie
+    state.settings.launchAtLogin = await autostartEnabled().catch(() => false);
+    saveSettings();
+    render();
+  }
+}
+
 async function bootstrap() {
   render();
+
+  // Apply persisted preferences that live outside the webview.
+  api.setTrayEnabled(state.settings.showMenuBar).catch(() => {});
+  autostartEnabled()
+    .then((actual) => {
+      if (actual !== state.settings.launchAtLogin) {
+        state.settings.launchAtLogin = actual;
+        saveSettings();
+        render();
+      }
+    })
+    .catch(() => {});
 
   getVersion().then((v) => {
     state.appVersion = v;
