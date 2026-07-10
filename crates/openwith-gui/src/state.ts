@@ -43,6 +43,10 @@ export interface UpdateStatus {
 export interface SettingsState {
   launchAtLogin: boolean;
   showMenuBar: boolean;
+  /** Menu-bar-only mode. Only honored while showMenuBar is on — the app must
+   * stay reachable somewhere. */
+  hideDockIcon: boolean;
+  appearance: import("./theme").Appearance;
   confirmBeforeApplying: boolean;
   warnUtiConflicts: boolean;
   showBundleIds: boolean;
@@ -57,6 +61,8 @@ const SETTINGS_KEY = "openwith.settings";
 const DEFAULT_SETTINGS: SettingsState = {
   launchAtLogin: false,
   showMenuBar: true,
+  hideDockIcon: false,
+  appearance: "system",
   confirmBeforeApplying: false,
   warnUtiConflicts: true,
   showBundleIds: true,

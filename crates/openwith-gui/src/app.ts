@@ -25,6 +25,7 @@ import {
   state,
   type Tab,
 } from "./state";
+import { applyTheme, type Appearance } from "./theme";
 
 const root = document.getElementById("app")!;
 
@@ -286,13 +287,22 @@ function renderProfiles(): string {
         </div>
       </div>
     </div>
-    ${state.importPending ? renderImportPreview() : ""}
+    ${renderImportPreview()}
     ${renderHistory()}
   </div>`;
 }
 
 function renderImportPreview(): string {
-  const pending = state.importPending!;
+  const pending = state.importPending;
+  // The panel is a fixture of the view (like the prototype): it explains the
+  // import flow even when no file is staged.
+  if (!pending) {
+    return `
+  <div class="panel-block">
+    <div class="panel-block-head"><span>DRY-RUN PREVIEW</span></div>
+    <div class="preview-body"><span class="italic-muted">Drop or choose a .toml to preview changes before applying.</span></div>
+  </div>`;
+  }
   const preview = pending.preview;
   const lines: string[] = [];
   for (const a of preview.applied) {
@@ -362,7 +372,7 @@ function updateStatusLine(): string {
   const v = state.appVersion;
   if (u.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
   if (u.latest && v && u.latest !== v)
-    return `<span class="desc warn-text">Update ${escapeHtml(u.latest)} available — <span class="mono">brew upgrade --cask openwith</span></span>`;
+    return `<span class="desc warn-text">Update ${escapeHtml(u.latest)} available — <span class="mono">brew upgrade --cask openwith-gui</span></span>`;
   if (u.latest && u.checkedAt)
     return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(u.checkedAt)}</span>`;
   return `<span class="desc">Updates ship via Homebrew</span>`;
@@ -383,6 +393,11 @@ function renderSettings(): string {
         <div class="settings-card-head">GENERAL</div>
         ${toggleRow("launchAtLogin", s.launchAtLogin, "Launch at login", "Start OpenWith when you log in")}
         ${toggleRow("showMenuBar", s.showMenuBar, "Show in menu bar", "Quick-access panel with ⌥⌘O")}
+        ${toggleRow("hideDockIcon", s.hideDockIcon, "Hide Dock icon", "Menu-bar-only mode — needs the menu bar icon on", !s.showMenuBar)}
+        <div class="settings-row">
+          <span><span class="label">Appearance</span><span class="desc">System follows your macOS setting</span></span>
+          ${segmented("set-appearance", "appearance", [{ key: "system", label: "System" }, { key: "light", label: "Light" }, { key: "dark", label: "Dark" }], s.appearance)}
+        </div>
         <div class="settings-row">
           <span><span class="label">Open on tab</span><span class="desc">Which view the main window starts on</span></span>
           ${segmented("set-open-tab", "tab", [{ key: "extensions", label: "Extensions" }, { key: "apps", label: "Apps" }], s.openOnTab)}
@@ -947,18 +962,29 @@ root.addEventListener("click", (e) => {
       const key = target.dataset.toggle as
         | "launchAtLogin"
         | "showMenuBar"
+        | "hideDockIcon"
         | "confirmBeforeApplying"
         | "warnUtiConflicts"
         | "showBundleIds"
         | "relaunchFinder"
         | "autoUpdateCheck";
       state.settings[key] = !state.settings[key];
+      if (key === "showMenuBar" && !state.settings.showMenuBar) {
+        // Never both hidden: losing the tray forces the Dock icon back.
+        state.settings.hideDockIcon = false;
+        api.setDockVisible(true).catch(() => {});
+      }
       saveSettings();
       if (key === "launchAtLogin") {
         void applyLaunchAtLogin(state.settings.launchAtLogin);
       } else if (key === "showMenuBar") {
         api.setTrayEnabled(state.settings.showMenuBar).catch(() => {
           state.toast = { text: "Couldn't update the menu bar icon" };
+          render();
+        });
+      } else if (key === "hideDockIcon") {
+        api.setDockVisible(!state.settings.hideDockIcon).catch(() => {
+          state.toast = { text: "Couldn't change the Dock icon" };
           render();
         });
       }
@@ -970,9 +996,18 @@ root.addEventListener("click", (e) => {
       saveSettings();
       render();
       break;
+    case "set-appearance":
+      state.settings.appearance = target.dataset.appearance as Appearance;
+      saveSettings();
+      // Restyles this window now; the popover follows via its storage event.
+      applyTheme();
+      render();
+      break;
     case "set-channel":
       state.settings.updateChannel = target.dataset.channel as "stable" | "beta";
       saveSettings();
+      // Re-check immediately so the status line reflects the new channel.
+      void checkForUpdates();
       render();
       break;
   }
@@ -1058,6 +1093,9 @@ async function bootstrap() {
 
   // Apply persisted preferences that live outside the webview.
   api.setTrayEnabled(state.settings.showMenuBar).catch(() => {});
+  if (state.settings.hideDockIcon && state.settings.showMenuBar) {
+    api.setDockVisible(false).catch(() => {});
+  }
   autostartEnabled()
     .then((actual) => {
       if (actual !== state.settings.launchAtLogin) {
