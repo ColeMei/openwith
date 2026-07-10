@@ -1164,7 +1164,7 @@ body {
   --pop-drop-bg: #fff;
   --pop-drop-text: #5c574f;
   --pop-footer-text: #5c574f;
-  --pop-shadow: 0 18px 50px rgba(43, 41, 38, 0.25);
+  --pop-shadow: 0 6px 22px rgba(43, 41, 38, 0.18);
   --pop-picker-bg: #fff;
 }
 
@@ -1174,7 +1174,7 @@ body {
     --pop-drop-bg: #292521;
     --pop-drop-text: #a89f92;
     --pop-footer-text: #a89f92;
-    --pop-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+    --pop-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
     --pop-picker-bg: var(--sheet-bg);
   }
 }

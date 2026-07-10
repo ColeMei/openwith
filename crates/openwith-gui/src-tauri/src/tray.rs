@@ -23,8 +23,13 @@ pub fn set_enabled(app: &AppHandle, enabled: bool) -> tauri::Result<()> {
 }
 
 fn build(app: &AppHandle) -> tauri::Result<TrayIcon> {
-    let mut builder = TrayIconBuilder::with_id("openwith-tray")
+    // Monochrome template image: macOS recolors it for light/dark menu bars
+    // and the pressed state, like native status items.
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
+    TrayIconBuilder::with_id("openwith-tray")
         .tooltip("OpenWith")
+        .icon(icon)
+        .icon_as_template(true)
         .on_tray_icon_event(|tray, event| {
             tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
             if let TrayIconEvent::Click {
@@ -35,11 +40,8 @@ fn build(app: &AppHandle) -> tauri::Result<TrayIcon> {
             {
                 toggle_popover(tray.app_handle());
             }
-        });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
-    }
-    builder.build(app)
+        })
+        .build(app)
 }
 
 pub fn toggle_popover(app: &AppHandle) {
