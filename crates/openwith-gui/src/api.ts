@@ -122,6 +122,8 @@ export const api = {
     invoke<void>("set_tray_enabled", { enabled }),
   setDockVisible: (visible: boolean) =>
     invoke<void>("set_dock_visible", { visible }),
+  setDockIconDark: (dark: boolean) =>
+    invoke<void>("set_dock_icon_dark", { dark }),
   setPopoverPinned: (pinned: boolean) =>
     invoke<void>("set_popover_pinned", { pinned }),
   setToggleShortcut: (accelerator: string) =>

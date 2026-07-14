@@ -352,6 +352,30 @@ pub fn set_dock_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Swap the Dock icon between the light and dark masters. macOS only
+/// re-renders bundle icons for the *system* appearance, so following the
+/// in-app Appearance setting has to happen at runtime. Driven by
+/// theme.ts whenever the resolved theme changes.
+#[tauri::command]
+pub fn set_dock_icon_dark(app: AppHandle, dark: bool) -> Result<(), String> {
+    app.run_on_main_thread(move || {
+        use objc2::{AllocAnyThread, MainThreadMarker};
+        use objc2_app_kit::{NSApplication, NSImage};
+        use objc2_foundation::NSData;
+
+        static LIGHT: &[u8] = include_bytes!("../icons/icon.png");
+        static DARK: &[u8] = include_bytes!("../icons/icon-dark.png");
+        let mtm = MainThreadMarker::new().expect("run_on_main_thread runs on main");
+        let data = NSData::with_bytes(if dark { DARK } else { LIGHT });
+        if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+            unsafe {
+                NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
 #[derive(Serialize)]
 pub struct HistoryEventDto {
     pub kind: String,
