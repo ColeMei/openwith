@@ -73,6 +73,7 @@ pub fn run() {
             commands::quit_app,
             commands::set_tray_enabled,
             commands::set_dock_visible,
+            commands::set_dock_icon_dark,
             commands::set_popover_pinned,
             commands::set_toggle_shortcut,
         ])

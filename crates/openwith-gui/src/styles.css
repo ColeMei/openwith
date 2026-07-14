@@ -147,14 +147,15 @@ body {
   font-family: ui-monospace, Menlo, monospace;
 }
 
-/* header + tabs; left padding clears the native overlay traffic lights */
+/* header + tabs; left padding clears the native overlay traffic lights.
+   Window dragging comes from data-tauri-drag-region in the markup —
+   -webkit-app-region is Electron-only and does nothing in WKWebView. */
 .header {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 14px 18px 12px 84px;
-  -webkit-app-region: drag;
 }
 
 .header .tabs {
@@ -162,7 +163,6 @@ body {
   display: flex;
   gap: 16px;
   align-items: baseline;
-  -webkit-app-region: no-drag;
 }
 
 .tab {
