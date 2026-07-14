@@ -53,9 +53,12 @@ function renderHeader(): string {
     </button>`,
   ).join("");
 
+  // data-tauri-drag-region only fires on the element itself, not children:
+  // it must sit on every surface that should drag the window (bar + wordmark),
+  // while the tab buttons stay grabbable-free by simply not carrying it.
   return `
-  <div class="header">
-    <span style="font-size:13px;font-weight:700">OpenWith</span>
+  <div class="header" data-tauri-drag-region>
+    <span data-tauri-drag-region style="font-size:13px;font-weight:700">OpenWith</span>
     <div class="tabs">
       ${tabs}
       <button class="gear ${state.settingsOpen ? "active" : ""}" data-action="settings-toggle" title="Settings">⚙</button>
