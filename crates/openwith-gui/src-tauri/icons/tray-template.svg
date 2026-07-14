@@ -1,7 +1,8 @@
-<!-- Design source for tray-template.png (macOS template image: pure black on
-     transparent; the system recolors it). Regenerate the PNG at 44x44 from
-     this 22x22 design if the glyph changes. Motif: the app logo's
-     document-with-arrow, simplified for menu bar size. -->
+<!-- SUPERSEDED: tray-template.png is now generated from artifacts/logo-mono-glyph.png
+     (document -> arrow -> app-window glyph, the 2026-07 logo redesign) via a
+     luminance-to-alpha conversion, not from this SVG. Kept only as a record
+     of the original v0.5.1 glyph. Template image rules still apply: pure
+     black on transparent, 44x44 (22pt @2x); macOS recolors it. -->
 <svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
   <rect x="4" y="3.2" width="8.6" height="15.6" rx="2.2"
         fill="none" stroke="black" stroke-width="1.6"/>

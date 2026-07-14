@@ -1,3 +1,7 @@
 /target
 .superpowers/
 .claude/settings.local.json
+
+# `tauri icon` side-products for platforms this app doesn't ship on
+crates/openwith-gui/src-tauri/icons/ios/
+crates/openwith-gui/src-tauri/icons/android/
