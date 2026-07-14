@@ -66,13 +66,21 @@ brew install --cask ColeMei/openwith/openwith-gui
 
 Or download the `.dmg` from the [latest release](https://github.com/ColeMei/openwith/releases).
 
-The app is currently unsigned (no Apple Developer ID), so on first launch macOS will
-warn about an unidentified developer — right-click the app → Open, or clear the
-quarantine flag:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/OpenWith.app
-```
+> [!IMPORTANT]
+> The app is currently unsigned (no Apple Developer ID), so on first launch recent
+> macOS versions claim **"OpenWith.app is damaged and can't be opened"**. It isn't —
+> that's Gatekeeper's message for unsigned apps, and right-click → Open no longer
+> bypasses it. Clear the quarantine flag once and it launches normally:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/OpenWith.app
+> ```
+>
+> Or install without the quarantine flag in the first place:
+>
+> ```bash
+> brew install --cask --no-quarantine ColeMei/openwith/openwith-gui
+> ```
 
 To build it from source instead: `cd crates/openwith-gui && npm install && npm run tauri build`.
 
