@@ -41,17 +41,12 @@ FLAGS
     name = "openwith",
     about = "Manage macOS file extension associations",
     version,
-    disable_version_flag = true,
-    disable_help_flag = true
+    disable_version_flag = true
 )]
 pub struct Cli {
     /// Print version
     #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
     pub version: (),
-
-    /// Print help
-    #[arg(short = 'h', long = "help", action = clap::ArgAction::HelpLong)]
-    pub help: (),
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -61,6 +56,11 @@ impl Cli {
     pub fn parse_with_help() -> Self {
         use clap::CommandFactory;
         let mut cmd = Self::command();
+        // Only the root gets the hand-written logo template; subcommands keep
+        // clap's generated help, which lists their actual flags. `-h`/`--help`
+        // stay enabled everywhere — disabling them at the root propagated to
+        // every subcommand, leaving `openwith set --help` an "unexpected
+        // argument" error.
         cmd = cmd.help_template(help_template());
         let matches = cmd.get_matches();
         Self::from_arg_matches(&matches).expect("failed to parse CLI arguments")
@@ -145,4 +145,36 @@ pub enum Commands {
     /// Generate a man page (roff) on stdout
     #[command(hide = true)]
     Mangen,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    /// `disable_help_flag` on the root propagates to subcommands, which once
+    /// left every `openwith <sub> --help` failing as an unexpected argument
+    /// while the root's own help still worked — so the breakage was invisible
+    /// unless a subcommand was tried directly.
+    #[test]
+    fn every_subcommand_accepts_help() {
+        let mut cmd = Cli::command();
+        cmd.build();
+        for sub in cmd.get_subcommands() {
+            // clap's own `openwith help <sub>` command takes no flags itself.
+            if sub.get_name() == "help" {
+                continue;
+            }
+            assert!(
+                sub.get_arguments().any(|a| a.get_id() == "help"),
+                "`openwith {}` has no --help flag",
+                sub.get_name()
+            );
+        }
+    }
 }
