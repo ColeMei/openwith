@@ -21,7 +21,7 @@ MANAGE
     openwith set <ext> <app>    Set the default app (name or bundle ID)
     openwith current -s http    Show the handler for a URL scheme
     openwith set -s http <app>  Set the handler for a URL scheme
-    openwith history            Show recent changes (--json for scripts)
+    openwith history            Show recent changes, last 7 days (--all, --json)
     openwith undo               Revert the most recent change
 
 CONFIG
@@ -106,6 +106,12 @@ pub enum Commands {
         /// Maximum number of events to show
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: usize,
+        /// Only show events from the last N days
+        #[arg(short = 'd', long, default_value_t = openwith_core::history::DEFAULT_WINDOW_DAYS)]
+        days: u64,
+        /// Show every retained event, ignoring --days
+        #[arg(long, conflicts_with = "days")]
+        all: bool,
         /// Print JSON
         #[arg(long)]
         json: bool,

@@ -13,8 +13,19 @@ use serde::{Deserialize, Serialize};
 /// Keep the log bounded; older events fall off the front.
 const MAX_EVENTS: usize = 500;
 
-/// Events older than this are pruned on every write.
+/// Events older than this are pruned on every write. This is the ledger's
+/// hard ceiling, not the default view: surfaces apply their own, much shorter
+/// display window (see `DEFAULT_WINDOW_DAYS`) on read.
 const MAX_AGE_SECS: u64 = 90 * 24 * 60 * 60;
+
+/// Default display window, in days. Changing a default is a "did I just break
+/// my PDFs?" action — the useful lookback is days, not months, so every
+/// surface (Profiles panel, popover, `openwith history`) shows this much
+/// unless the user widens it.
+pub const DEFAULT_WINDOW_DAYS: u64 = 7;
+
+/// Seconds in a day, for turning a window in days into a cutoff.
+pub const DAY_SECS: u64 = 24 * 60 * 60;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct HistoryEvent {
@@ -75,8 +86,22 @@ pub fn record(event: HistoryEvent) -> Result<()> {
 }
 
 /// Newest-first slice of the default history file. Missing file → empty.
+///
+/// Unwindowed: this is the ledger view, used by undo lookups that must still
+/// find an event the display window has scrolled past. Display surfaces want
+/// [`recent_within`] instead.
 pub fn recent(limit: usize) -> Result<Vec<HistoryEvent>> {
     recent_at(&history_path()?, limit)
+}
+
+/// Newest-first slice restricted to the last `window_days` days. `None` keeps
+/// everything the ledger still holds.
+///
+/// The window has to be enforced here rather than only in `record_at`: pruning
+/// happens on write, so an install that hasn't changed anything in months
+/// would otherwise keep showing months-old rows.
+pub fn recent_within(limit: usize, window_days: Option<u64>) -> Result<Vec<HistoryEvent>> {
+    recent_within_at(&history_path()?, limit, window_days)
 }
 
 fn load(path: &Path) -> Vec<HistoryEvent> {
@@ -104,7 +129,19 @@ pub fn record_at(path: &Path, event: HistoryEvent) -> Result<()> {
 }
 
 pub fn recent_at(path: &Path, limit: usize) -> Result<Vec<HistoryEvent>> {
+    recent_within_at(path, limit, None)
+}
+
+pub fn recent_within_at(
+    path: &Path,
+    limit: usize,
+    window_days: Option<u64>,
+) -> Result<Vec<HistoryEvent>> {
     let mut events = load(path);
+    if let Some(days) = window_days {
+        let cutoff = now_secs().saturating_sub(days.saturating_mul(DAY_SECS));
+        events.retain(|e| e.timestamp >= cutoff);
+    }
     events.reverse();
     events.truncate(limit);
     Ok(events)
@@ -265,6 +302,46 @@ mod tests {
         let events = recent_at(&path, MAX_EVENTS + 50).unwrap();
         assert_eq!(events.len(), MAX_EVENTS);
         assert_eq!(events[0].timestamp, base + MAX_EVENTS as u64 + 19);
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn display_window_filters_on_read() {
+        let path = temp_log("window");
+        let _ = std::fs::remove_file(&path);
+
+        // Seeded directly: a dormant install never calls record_at, which is
+        // exactly the case the read-side window has to cover.
+        let old = event("set", ".old", now_secs() - 30 * DAY_SECS);
+        let fresh = event("set", ".fresh", now_secs() - 2 * DAY_SECS);
+        std::fs::write(&path, serde_json::to_string(&vec![old, fresh]).unwrap()).unwrap();
+
+        let windowed = recent_within_at(&path, 10, Some(DEFAULT_WINDOW_DAYS)).unwrap();
+        assert_eq!(windowed.len(), 1);
+        assert_eq!(windowed[0].key, ".fresh");
+
+        // None keeps everything the ledger still holds...
+        assert_eq!(recent_within_at(&path, 10, None).unwrap().len(), 2);
+        // ...and a wide enough window is equivalent.
+        assert_eq!(recent_within_at(&path, 10, Some(90)).unwrap().len(), 2);
+        // The unwindowed ledger view (undo lookups) still sees the old event.
+        assert_eq!(recent_at(&path, 10).unwrap().len(), 2);
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn window_does_not_delete_anything() {
+        let path = temp_log("window-nondestructive");
+        let _ = std::fs::remove_file(&path);
+
+        let old = event("set", ".old", now_secs() - 30 * DAY_SECS);
+        std::fs::write(&path, serde_json::to_string(&vec![old]).unwrap()).unwrap();
+
+        assert!(recent_within_at(&path, 10, Some(7)).unwrap().is_empty());
+        // Reading through a narrow window must not rewrite the file.
+        assert_eq!(recent_at(&path, 10).unwrap().len(), 1);
 
         std::fs::remove_file(&path).unwrap();
     }

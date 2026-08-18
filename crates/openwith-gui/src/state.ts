@@ -56,6 +56,11 @@ export interface SettingsState {
   openOnTab: Tab;
   /** Global popover toggle, in Tauri accelerator form (e.g. "alt+cmd+o"). */
   toggleShortcut: string;
+  /** How far back the Profiles HISTORY panel and the popover's Recent Changes
+   * look, in days. `null` shows everything the ledger still retains (capped at
+   * 90 days / 500 events by the core). Purely a display window — nothing is
+   * deleted, and `openwith undo` still reaches past it. */
+  historyWindowDays: number | null;
 }
 
 const SETTINGS_KEY = "openwith.settings";
@@ -73,6 +78,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   updateChannel: "stable",
   openOnTab: "extensions",
   toggleShortcut: "alt+cmd+o",
+  historyWindowDays: 7,
 };
 
 function loadSettings(): SettingsState {
@@ -132,6 +138,10 @@ export interface State {
   importPending: ImportPending | null;
   windowDragOver: boolean;
   history: HistoryEventDto[];
+  /** Session-only override of `settings.historyWindowDays`, set by the HISTORY
+   * panel's "Show all" button. Not persisted — widening the window is a
+   * one-off "where did that change go?" action, not a preference. */
+  historyShowAll: boolean;
 
   settings: SettingsState;
 
@@ -161,6 +171,7 @@ export const state: State = {
   importPending: null,
   windowDragOver: false,
   history: [],
+  historyShowAll: false,
 
   settings: initialSettings,
 
