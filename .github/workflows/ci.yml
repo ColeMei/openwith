@@ -20,3 +20,25 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test
+
+  gui:
+    # Pure node — no macOS-only APIs in the frontend build, and Linux runners
+    # start faster.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/openwith-gui/package-lock.json
+      # Typechecks the frontend (tsc) and builds the Vite bundle. The Rust side
+      # of the Tauri app is already covered by the `rust` job's workspace-wide
+      # check/clippy, so this deliberately stops short of a full `tauri build`
+      # — that needs a bundle step measured in minutes, not seconds.
+      - name: Install frontend deps
+        working-directory: crates/openwith-gui
+        run: npm ci
+      - name: Typecheck + build frontend
+        working-directory: crates/openwith-gui
+        run: npm run build
