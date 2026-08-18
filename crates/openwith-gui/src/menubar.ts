@@ -77,7 +77,12 @@ function renderMatches(): string {
 
 function renderRecent(): string {
   if (state.recent.length === 0) {
-    return `<div class="pop-recent-row"><span class="pop-muted italic">No changes recorded yet.</span></div>`;
+    const days = shared.settings.historyWindowDays;
+    const empty =
+      days === null
+        ? "No changes recorded yet."
+        : `Nothing in the last ${days} days.`;
+    return `<div class="pop-recent-row"><span class="pop-muted italic">${escapeHtml(empty)}</span></div>`;
   }
   return state.recent
     .map((e, i) => {
@@ -168,7 +173,9 @@ async function refreshMatches() {
 
 async function refreshRecent() {
   try {
-    state.recent = await api.getRecentChanges(4);
+    // Same window as the main window's HISTORY panel — reloadSettings() on
+    // `storage` events keeps this in step when the setting changes there.
+    state.recent = await api.getRecentChanges(4, shared.settings.historyWindowDays);
   } catch {
     state.recent = [];
   }
@@ -280,8 +287,11 @@ void popoverWindow.listen("popover-shown", () => {
 });
 
 // Settings changed in the main window (shortcut, bundle IDs) reach us here.
+// The history window is one of them, and widening it needs rows we never
+// fetched — so refetch rather than just re-render.
 window.addEventListener("storage", () => {
   reloadSettings();
+  void refreshRecent();
   render();
 });
 

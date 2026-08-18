@@ -259,15 +259,48 @@ function historyRow(e: import("./api").HistoryEventDto): string {
   </div>`;
 }
 
+/** The window actually in force: the persisted setting, unless the panel's
+ * session-only "Show all" override is on. `null` means no filter. */
+export function effectiveHistoryWindow(): number | null {
+  return state.historyShowAll ? null : state.settings.historyWindowDays;
+}
+
+/** "Last 7 days" / "Last 30 days" / "All changes" — used in the panel head. */
+function historyWindowLabel(days: number | null): string {
+  if (days === null) return "All changes";
+  if (days === 1) return "Last 24 hours";
+  return `Last ${days} days`;
+}
+
 function renderHistory(): string {
+  const windowDays = effectiveHistoryWindow();
+  const empty =
+    windowDays === null
+      ? "Changes, exports, and imports will appear here."
+      : `No changes in the ${historyWindowLabel(windowDays).toLowerCase()} — older changes are still kept.`;
   const rows =
     state.history.length > 0
       ? state.history.map(historyRow).join("")
-      : `<div class="history-row"><span class="italic-muted">Changes, exports, and imports will appear here.</span></div>`;
+      : `<div class="history-row"><span class="italic-muted">${escapeHtml(empty)}</span></div>`;
+
+  // Older events are hidden, never deleted — offer the way back to them
+  // whenever the setting is narrowing the view.
+  const canWiden = state.settings.historyWindowDays !== null;
+  const widen = canWiden
+    ? `<button class="panel-block-action" data-action="toggle-history-all">${
+        state.historyShowAll
+          ? `Show ${historyWindowLabel(state.settings.historyWindowDays).toLowerCase()}`
+          : "Show all"
+      }</button>`
+    : "";
 
   return `
   <div class="panel-block">
-    <div class="panel-block-head"><span>HISTORY</span></div>
+    <div class="panel-block-head">
+      <span>HISTORY</span>
+      <span class="panel-block-note">${escapeHtml(historyWindowLabel(windowDays))}</span>
+      ${widen}
+    </div>
     <div class="history-body">${rows}</div>
   </div>`;
 }
@@ -421,6 +454,10 @@ function renderSettings(): string {
         ${toggleRow("warnUtiConflicts", s.warnUtiConflicts, "Warn on UTI conflicts", "Flag changes that affect sibling extensions like .env / .txt")}
         ${toggleRow("showBundleIds", s.showBundleIds, "Show bundle IDs", "Display raw bundle identifiers in lists")}
         ${toggleRow("relaunchFinder", s.relaunchFinder, "Relaunch Finder after changes", "Clears stale icon caches — closes Finder windows")}
+        <div class="settings-row">
+          <span><span class="label">Show history for</span><span class="desc">How far back the History panel and menu bar look — older changes are kept, just hidden</span></span>
+          ${segmented("set-history-window", "days", [{ key: "7", label: "1 week" }, { key: "30", label: "1 month" }, { key: "all", label: "All" }], s.historyWindowDays === null ? "all" : String(s.historyWindowDays))}
+        </div>
       </div>
       <div class="settings-card">
         <div class="settings-card-head">UPDATES</div>
@@ -609,7 +646,7 @@ function render() {
 
 function refreshHistory() {
   api
-    .getHistory(50)
+    .getHistory(50, effectiveHistoryWindow())
     .then((events) => {
       state.history = events;
       render();
@@ -1046,6 +1083,23 @@ root.addEventListener("click", (e) => {
       saveSettings();
       // Restyles this window now; the popover follows via its storage event.
       applyTheme();
+      render();
+      break;
+    case "set-history-window": {
+      const raw = target.dataset.days;
+      state.settings.historyWindowDays = raw === "all" ? null : Number(raw);
+      // An explicit choice supersedes the panel's one-off override.
+      state.historyShowAll = false;
+      saveSettings();
+      // Refetch rather than filter in place: widening needs rows we never
+      // asked the backend for. refreshHistory() re-renders on completion.
+      refreshHistory();
+      render();
+      break;
+    }
+    case "toggle-history-all":
+      state.historyShowAll = !state.historyShowAll;
+      refreshHistory();
       render();
       break;
     case "set-channel":

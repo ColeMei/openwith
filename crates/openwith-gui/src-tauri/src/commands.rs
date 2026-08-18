@@ -220,13 +220,18 @@ pub fn get_ext_picker(
 
 /// Recent set events for the popover's Recent Changes list, names resolved.
 /// Undo-stack view: undone changes and the reverts themselves are hidden.
+///
+/// `window_days` is the caller's display window (`None` = everything retained);
+/// it is applied before the undo-stack filter so a quiet week shows an empty
+/// panel rather than months-old rows.
 #[tauri::command]
 pub fn get_recent_changes(
     limit: usize,
+    window_days: Option<u64>,
     cache: State<'_, AppsCache>,
 ) -> Result<Vec<RecentChangeDto>, String> {
     let apps = cached_apps(&cache)?;
-    let events = history::recent(100).map_err(|e| e.to_string())?;
+    let events = history::recent_within(100, window_days).map_err(|e| e.to_string())?;
     Ok(events
         .into_iter()
         .filter(|e| matches!(e.kind.as_str(), "set" | "set_scheme") && !e.undone && !e.is_undo)
@@ -389,14 +394,16 @@ pub struct HistoryEventDto {
     pub is_undo: bool,
 }
 
-/// Full ledger for the Profiles HISTORY panel, bundle IDs resolved to names.
+/// Ledger for the Profiles HISTORY panel, bundle IDs resolved to names,
+/// restricted to `window_days` (`None` = everything retained).
 #[tauri::command]
 pub fn get_history(
     limit: usize,
+    window_days: Option<u64>,
     cache: State<'_, AppsCache>,
 ) -> Result<Vec<HistoryEventDto>, String> {
     let apps = cached_apps(&cache)?;
-    let events = history::recent(limit).map_err(|e| e.to_string())?;
+    let events = history::recent_within(limit, window_days).map_err(|e| e.to_string())?;
     Ok(events
         .into_iter()
         .map(|e| HistoryEventDto {

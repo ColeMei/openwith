@@ -21,7 +21,7 @@ cargo run -p openwith-cli -- set -s http Firefox   # set default browser
 cargo run -p openwith-cli -- export -o out.toml    # export associations to TOML
 cargo run -p openwith-cli -- import --dry-run out.toml  # preview an import
 cargo run -p openwith-cli -- import out.toml       # import associations from TOML
-cargo run -p openwith-cli -- history               # recent changes from CLI + GUI (--json)
+cargo run -p openwith-cli -- history               # recent changes, last 7 days (--days N, --all, --json)
 cargo run -p openwith-cli -- undo                  # revert the most recent change
 cargo check                        # quick compile check
 cargo test                         # run tests
@@ -62,7 +62,7 @@ crates/
       set.rs             -- `openwith set <ext> <app>` with name/bundle-ID resolution
       export.rs          -- `openwith export` dump associations + schemes to TOML
       import.rs          -- `openwith import` apply TOML (idempotent, `--dry-run`)
-      history.rs         -- `openwith history` list recent events (relative dates, --json)
+      history.rs         -- `openwith history` list recent events (relative dates, --days/--all, --json)
       undo.rs            -- `openwith undo` revert last set (drift check, --force)
       tui.rs             -- ratatui TUI: Extensions + Apps tabs, loading screen, AppPicker + Help
   openwith-gui/         -- Tauri v2 GUI ("OpenWith.app")
@@ -92,7 +92,8 @@ crates/
 - Loading screen enters TUI alternate screen immediately, shows ASCII logo + spinner while scanning in background.
 - Export/import uses serde + toml crate with `BTreeMap<String, String>` for sorted, human-readable TOML; import validates apps exist and skips associations already set correctly.
 - GUI: single `get_snapshot` command returns apps + associations (with sibling-UTI conflict data) + contested schemes in one call; the frontend is a plain render-to-innerHTML loop with `data-action` event delegation, no framework. Versions are lockstep: `tauri.conf.json` omits `version` so the app version comes from `workspace.package` in the root Cargo.toml.
-- `openwith-core::history` is the shared change log (capped at 500 events, best-effort writes that never fail the triggering change). CLI, GUI, and core import all record into it; the GUI Profiles panel shows export/import events, the menu-bar popover shows set events with per-entry Undo, and `openwith history`/`openwith undo` read the same file.
+- `openwith-core::history` is the shared change log (capped at 500 events / 90 days, best-effort writes that never fail the triggering change). CLI, GUI, and core import all record into it; the GUI Profiles panel shows export/import events, the menu-bar popover shows set events with per-entry Undo, and `openwith history`/`openwith undo` read the same file.
+- History retention is a **display window, not deletion**. The 90-day/500-event prune in `record_at` is only a ledger backstop and runs on *write*, so a dormant install would otherwise show months-old rows forever — the window is therefore applied on **read**, via `history::recent_within`. Default is 7 days (`DEFAULT_WINDOW_DAYS`), settable in Settings → Behavior → "Show history for" (1 week / 1 month / All — the ledger's own 90-day cap makes a "3 months" option redundant; persisted as `historyWindowDays` in localStorage and shared by both windows) and via `openwith history --days N` / `--all`. The Profiles HISTORY panel head shows the active window plus a session-only "Show all" toggle (`state.historyShowAll`, deliberately not persisted). `undo_change` and `openwith undo` keep reading the *unwindowed* ledger (`history::recent`) so a hidden event stays revertible.
 - The GUI is two windows off one Vite bundle: `main` and a hidden transparent `menubar` popover (requires `macOSPrivateApi: true`). The popover hides on blur and is toggled by the tray icon or a configurable global shortcut (default ⌥⌘O; `set_toggle_shortcut` swaps the registration at runtime, the saved accelerator is re-applied at bootstrap). A **Pin** button suspends hide-on-blur for one showing (backend `PopoverPinned` AtomicBool, reset on every toggle) so a file can be dragged in from Finder — without it the click into Finder blurs and hides the panel. Focus events are unreliable for the transparent panel, so the backend emits `popover-shown` on every open and the popover refreshes from that, not just from focus. A backend `AppsCache` (refreshed by `get_snapshot`) keeps popover lookups instant.
 - App icons come from the 2026-07 logo renders in `artifacts/` (`logo-mono-glyph.png`, `logo-icon-dark.png`, `logo-icon-light.png` — AI renders with **no alpha**, so masking is scripted, not manual): light → 1024 master → `tauri icon` set; dark → `icons/icon-dark.png`; mono glyph → `icons/tray-template.png` (64×44 black+alpha template, glyph ≈34px tall). The Dock icon follows the app's *resolved* appearance at runtime — `set_dock_icon_dark` swaps `NSApplication.applicationIconImage` between `icon.png`/`icon-dark.png` (macOS only re-renders bundle icons for the system appearance), invoked from `theme.ts` on every theme change. `icon.icns` is **hand-built**: the ≤64px slots use a legibility variant (header dots inpainted away, no shadow, larger glyph), so rerunning `tauri icon` clobbers it. All of these regenerate with `uv run scripts/gen-icons.py` (run it *after* any `tauri icon` invocation; it prints the `tauri icon` command for the PNG set).
 - GUI settings live in localStorage (`openwith.settings`). The Settings pane mirrors the design prototype's full layout; controls whose feature ships in a later 0.5.x phase (launch at login, menu bar) render disabled with an "arrives in v0.5.1" note rather than as silently-dead toggles.
@@ -174,6 +175,7 @@ Run against the built .app (not just `tauri dev`) before tagging any release wit
 - [ ] With the CLI upgraded via brew while the app runs: close and reopen Settings — the Command Line panel shows the new version without an app relaunch
 - [ ] Profiles: export; import via choose AND drag-drop; dry-run preview; apply; dismiss
 - [ ] History panel scrolls at 50 entries and updates after changes
+- [ ] History window: default shows only the last 7 days in both the Profiles panel and the popover; "Show all" reveals older rows and toggles back; switching the Settings segment (1 week/1 month/All) refetches both surfaces; the popover follows a change made in the main window without a relaunch
 - [ ] Check Now (updates) reports a sensible result on both channels
 - [ ] README screenshots (from the design prototype, `artifacts/gui-*.png`) still match the shipped UI — recapture if the UI changed
 

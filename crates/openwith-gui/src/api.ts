@@ -106,14 +106,14 @@ export const api = {
     invoke<ExportResultDto>("export_toml", { path }),
   importToml: (path: string, dryRun: boolean) =>
     invoke<ImportPreviewDto>("import_toml", { path, dryRun }),
-  getHistory: (limit: number) =>
-    invoke<HistoryEventDto[]>("get_history", { limit }),
+  getHistory: (limit: number, windowDays: number | null) =>
+    invoke<HistoryEventDto[]>("get_history", { limit, windowDays }),
   searchExtensions: (query: string) =>
     invoke<ExtMatchDto[]>("search_extensions", { query }),
   getExtPicker: (ext: string) =>
     invoke<PickerAppDto[]>("get_ext_picker", { ext }),
-  getRecentChanges: (limit: number) =>
-    invoke<RecentChangeDto[]>("get_recent_changes", { limit }),
+  getRecentChanges: (limit: number, windowDays: number | null) =>
+    invoke<RecentChangeDto[]>("get_recent_changes", { limit, windowDays }),
   undoChange: (kind: string, key: string, timestamp: number) =>
     invoke<SetResultDto>("undo_change", { kind, key, timestamp }),
   showMainWindow: () => invoke<void>("show_main_window"),

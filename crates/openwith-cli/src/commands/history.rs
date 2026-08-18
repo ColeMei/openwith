@@ -3,8 +3,9 @@ use anyhow::Result;
 use openwith_core::history::{self, HistoryEvent};
 use openwith_core::scanner;
 
-pub fn run(limit: usize, json: bool) -> Result<()> {
-    let events = history::recent(limit)?;
+/// `window_days` bounds how far back events are shown; `None` is `--all`.
+pub fn run(limit: usize, window_days: Option<u64>, json: bool) -> Result<()> {
+    let events = history::recent_within(limit, window_days)?;
 
     if json {
         let out: Vec<serde_json::Value> = events
@@ -28,7 +29,15 @@ pub fn run(limit: usize, json: bool) -> Result<()> {
     }
 
     if events.is_empty() {
-        println!("No history yet — changes made by the CLI or GUI will appear here.");
+        match window_days {
+            // The ledger may still hold older events — say so rather than
+            // implying nothing was ever recorded.
+            Some(days) => println!(
+                "No changes in the last {days} day{} — use --all to see everything retained.",
+                if days == 1 { "" } else { "s" }
+            ),
+            None => println!("No history yet — changes made by the CLI or GUI will appear here."),
+        }
         return Ok(());
     }
 

@@ -764,6 +764,30 @@ body {
   color: var(--text);
 }
 
+/* Current history window, pushed to the right of the HISTORY label. Normal
+   weight and no tracking so it reads as state, not as a second heading. */
+.panel-block-note {
+  margin-left: auto;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-faint);
+}
+
+.panel-block-action {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: default;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.panel-block-action:hover {
+  opacity: 0.75;
+}
+
 .preview-body {
   padding: 6px 14px 10px;
   font-family: ui-monospace, Menlo, monospace;
@@ -947,6 +971,7 @@ body {
 
 .segmented .option {
   font-size: 11px;
+  white-space: nowrap;
   padding: 4px 10px;
   border-radius: 5px;
   color: var(--text-faint);
