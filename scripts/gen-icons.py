@@ -14,7 +14,8 @@ Sources:
 
 Outputs (crates/openwith-gui/src-tauri/icons/):
   icon-dark.png      1024 dark master (runtime Dock swap, set_dock_icon_dark)
-  tray-template.png  64x44 black+alpha template image (glyph ~34px tall)
+  tray-template.png  64x44 black+alpha template image (glyph ~30px tall,
+                     ~22 x 12pt as macOS renders it in the menu bar)
   icon.icns          hand-built: >=128px slots keep the full render; <=64px
                      slots use a legibility variant (header dots inpainted
                      away, no drop shadow, glyph at ~92% of canvas, unsharp)
@@ -181,7 +182,13 @@ def build_tray_template() -> None:
     g = Image.open(ART / "logo-mono-glyph.png").convert("L")
     alpha = g.point(lambda l: 0 if l >= 200 else 255 if l <= 110 else int(255 * (200 - l) / 90))
     glyph = alpha.crop(alpha.getbbox())
-    tw, th, maxw, maxh = 64, 44, 62, 34
+    # tray-icon renders the *canvas* at a fixed 18pt tall and derives width
+    # from the canvas aspect, so the glyph's on-screen size is
+    # (glyph_px / canvas_px) x (26.2pt, 18pt). The mark is a wide 1.79:1
+    # lockup, so filling the canvas made it 25pt wide against a ~15pt median
+    # in a real menu bar. 54x30 lands it at ~22.1 x 12.3pt; the leftover
+    # canvas is transparent padding and keeps the click target generous.
+    tw, th, maxw, maxh = 64, 44, 54, 30
     scale = min(maxw / glyph.width, maxh / glyph.height)
     nw, nh = round(glyph.width * scale), round(glyph.height * scale)
     glyph = glyph.resize((nw, nh), Image.LANCZOS)
