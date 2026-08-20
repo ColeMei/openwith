@@ -137,6 +137,11 @@ export interface State {
   toast: ToastState | null;
   importPending: ImportPending | null;
   windowDragOver: boolean;
+  /** Keyboard cursor into the Extensions rows, and into the app-picker sheet.
+   * Kept as indices rather than ids because both lists are re-derived on every
+   * keystroke; an index survives the list changing under it, clamped on use. */
+  extCursor: number;
+  sheetCursor: number;
   history: HistoryEventDto[];
   /** Session-only override of `settings.historyWindowDays`, set by the HISTORY
    * panel's "Show all" button. Not persisted — widening the window is a
@@ -170,6 +175,8 @@ export const state: State = {
   toast: null,
   importPending: null,
   windowDragOver: false,
+  extCursor: 0,
+  sheetCursor: 0,
   history: [],
   historyShowAll: false,
 

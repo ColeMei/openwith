@@ -25,6 +25,9 @@ interface PopoverState {
   picker: { ext: string; apps: PickerAppDto[] } | null;
   /** Pinned popovers survive losing focus, so files can be dragged in. */
   pinned: boolean;
+  /** Keyboard cursor into `matches`, or into `picker.apps` when the picker is
+   * open. Clamped on read — both lists change under it as the user types. */
+  cursor: number;
 }
 
 const state: PopoverState = {
@@ -33,7 +36,23 @@ const state: PopoverState = {
   recent: [],
   picker: null,
   pinned: false,
+  cursor: 0,
 };
+
+/** Mirrors the main window: while the arrows are driving, hover is inert. */
+let keyboardNav = false;
+document.addEventListener(
+  "mousemove",
+  () => {
+    keyboardNav = false;
+  },
+  { passive: true },
+);
+
+function clamp(i: number, len: number): number {
+  if (len === 0) return 0;
+  return Math.min(Math.max(i, 0), len - 1);
+}
 
 function chip(name: string): string {
   return `<span class="avatar avatar-sm" style="background:${avatarColor(name)}">${escapeHtml(initials(name))}</span>`;
@@ -63,7 +82,7 @@ function renderMatches(): string {
           ? `<span class="bid">${escapeHtml(m.bundle_id ?? "no default set")}</span>`
           : "";
       return `
-      <div class="pop-row ${i === 0 ? "first" : ""}">
+      <div class="pop-row ${i === clamp(state.cursor, state.matches.length) ? "active" : ""}" data-idx="${i}">
         ${chip(app)}
         <span class="pop-row-text">
           <span class="line">.${escapeHtml(m.ext)} → ${escapeHtml(app)}</span>
@@ -102,10 +121,11 @@ function renderRecent(): string {
 
 function renderPicker(): string {
   if (!state.picker) return "";
+  const cur = clamp(state.cursor, state.picker.apps.length);
   const rows = state.picker.apps
     .map(
-      (a) => `
-      <div class="pop-picker-row" data-action="choose" data-bundle-id="${escapeHtml(a.bundle_id)}">
+      (a, i) => `
+      <div class="pop-picker-row ${i === cur ? "active" : ""}" data-action="choose" data-bundle-id="${escapeHtml(a.bundle_id)}" data-idx="${i}">
         ${chip(a.name)}
         <span class="name ${a.current ? "bold" : ""}">${escapeHtml(a.name)}</span>
         ${a.current ? `<span class="current-tag">CURRENT</span>` : ""}
@@ -168,6 +188,7 @@ async function refreshMatches() {
   } catch {
     state.matches = [];
   }
+  state.cursor = 0;
   render();
 }
 
@@ -188,6 +209,7 @@ async function openPicker(ext: string) {
   } catch {
     state.picker = null;
   }
+  state.cursor = 0;
   render();
 }
 
@@ -249,6 +271,23 @@ root.addEventListener("click", (e) => {
   }
 });
 
+// Same single-cursor rule as the main window: hovering moves it rather than
+// lighting a second row. Class swap only — no re-render per row crossed.
+// The popover's lists are short enough not to scroll under the pointer, so
+// this needs no equivalent of the main window's synthetic-mousemove guard.
+root.addEventListener("mouseover", (e) => {
+  if (keyboardNav) return;
+  const el = (e.target as HTMLElement).closest?.("[data-idx]") as HTMLElement | null;
+  if (!el) return;
+  const idx = Number(el.dataset.idx);
+  if (Number.isNaN(idx)) return;
+  const sel = state.picker ? ".pop-picker-row" : ".pop-row";
+  if (!el.matches(sel)) return;
+  state.cursor = idx;
+  root.querySelectorAll(`${sel}.active`).forEach((n) => n.classList.remove("active"));
+  el.classList.add("active");
+});
+
 root.addEventListener("input", (e) => {
   const target = e.target as HTMLInputElement;
   if (target.id === "pop-search") {
@@ -261,11 +300,39 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (state.picker) {
       state.picker = null;
+      state.cursor = 0;
       render();
     } else {
       state.pinned = false;
       void api.setPopoverPinned(false);
       void popoverWindow.hide();
+    }
+    return;
+  }
+
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  // The picker is modal over the matches; whichever is showing takes the keys.
+  const len = state.picker ? state.picker.apps.length : state.matches.length;
+  if (len === 0) return;
+
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    keyboardNav = true;
+    state.cursor = clamp(
+      clamp(state.cursor, len) + (e.key === "ArrowDown" ? 1 : -1),
+      len,
+    );
+    render();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const i = clamp(state.cursor, len);
+    if (state.picker) {
+      const a = state.picker.apps[i];
+      if (a) void choose(a.bundle_id);
+    } else {
+      const m = state.matches[i];
+      if (m) void openPicker(m.ext);
     }
   }
 });

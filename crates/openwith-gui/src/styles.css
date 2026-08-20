@@ -318,8 +318,15 @@ body {
   cursor: default;
 }
 
-.ext-row:hover {
+/* There is exactly one highlight in this list, and both the pointer and the
+   arrow keys drive it: hovering a row *moves* the cursor rather than painting
+   a second, competing highlight. Because nothing competes with it any more it
+   keeps the original neutral hover fill — the accent tint this briefly used
+   was only ever there to tell two simultaneous highlights apart. The 2px bar
+   marks the cursor without darkening the row; inset so it never reflows. */
+.ext-row.active {
   background: var(--field-bg);
+  box-shadow: inset 2px 0 0 var(--accent-mid);
 }
 
 .ext-ext {
@@ -446,8 +453,13 @@ body {
   background: var(--field-bg);
 }
 
+/* The Apps list keeps click-to-select — hovering here would swap the whole
+   detail pane out from under the pointer. So it does keep a hover *and* a
+   selection, and --row-selected vs the hover --field-bg is only 3 RGB points
+   apart. The bar carries the distinction instead of a heavier fill. */
 .app-row.selected {
   background: var(--row-selected);
+  box-shadow: inset 2px 0 0 var(--accent-mid);
 }
 
 .app-row.selected .name {
@@ -1101,11 +1113,6 @@ body {
   cursor: default;
 }
 
-.sheet-app:hover {
-  border-color: var(--accent-mid);
-  background: var(--sheet-current-bg);
-}
-
 .sheet-app.current {
   border-color: var(--accent-mid);
   background: var(--sheet-current-bg);
@@ -1113,6 +1120,13 @@ body {
 
 .sheet-app.current .name {
   font-weight: 700;
+}
+
+/* Cursor for the picker, driven by pointer and keyboard alike. Keeps the chip
+   hover fill; the accent border is what marks it. */
+.sheet-app.active {
+  border-color: var(--accent-mid);
+  background: var(--sheet-current-bg);
 }
 
 .sheet-app .name {
@@ -1326,8 +1340,12 @@ html.popover-window body {
   border-radius: 7px;
 }
 
-.pop-row.first {
+/* Keyboard cursor. Starts on row 0, so this also supplies the resting
+   highlight the first row used to carry unconditionally — which would
+   otherwise stay lit while the cursor moved elsewhere. */
+.pop-row.active {
   background: var(--field-bg);
+  box-shadow: inset 2px 0 0 var(--accent-mid);
 }
 
 .pop-row-text {
@@ -1502,6 +1520,11 @@ html.popover-window body {
   padding: 6px 8px;
   border-radius: 7px;
   cursor: default;
+}
+
+.pop-picker-row.active {
+  background: var(--field-bg);
+  box-shadow: inset 2px 0 0 var(--accent-mid);
 }
 
 .pop-picker-row:hover {

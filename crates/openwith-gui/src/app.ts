@@ -72,8 +72,9 @@ function renderExtensions(): string {
   const rows = filteredAssociations();
   const showBids = state.settings.showBundleIds;
   const gridClass = showBids ? "" : "no-bids";
+  const cursor = clampCursor(state.extCursor, rows.length);
   const rowsHtml = rows
-    .map((r) => {
+    .map((r, i) => {
       const appName = r.app_name ?? "(none)";
       const bid = r.bundle_id ?? "";
       const badge =
@@ -81,7 +82,7 @@ function renderExtensions(): string {
           ? `<span class="badge-conflict" title="Shares a UTI with sibling extensions">UTI ⚠</span>`
           : "";
       return `
-      <div class="ext-row ${gridClass}" data-action="open-ext-sheet" data-ext="${escapeHtml(r.ext)}">
+      <div class="ext-row ${gridClass} ${i === cursor ? "active" : ""}" data-action="open-ext-sheet" data-ext="${escapeHtml(r.ext)}" data-idx="${i}">
         <span class="ext-ext">.${escapeHtml(r.ext)}</span>
         <span class="ext-app">
           ${avatar(appName)}
@@ -107,7 +108,7 @@ function renderExtensions(): string {
         <span>EXT</span><span>DEFAULT APP</span>${showBids ? "<span>BUNDLE ID</span>" : ""}<span></span>
       </div>
       <div class="ext-rows">${rowsHtml || `<div class="footer-hint" style="padding:16px">No extensions match.</div>`}</div>
-      <div class="footer-hint">Click a row to change its default · drop any file on this window to look it up</div>
+      <div class="footer-hint">↑↓ to move · ↵ to change its default · drop any file on this window to look it up</div>
     </div>
   </div>`;
 }
@@ -507,13 +508,14 @@ function renderSheet(): string {
           .join(", ")}${sheet.siblings.length > 6 ? ` +${sheet.siblings.length - 6}` : ""}</span></div>`
       : "";
 
+  const sheetCursor = clampCursor(state.sheetCursor, apps.length);
   const appsHtml = apps
-    .map((a) => {
+    .map((a, i) => {
       const current =
         sheet.currentBundleId !== null &&
         a.bundle_id.toLowerCase() === sheet.currentBundleId.toLowerCase();
       return `
-      <div class="sheet-app ${current ? "current" : ""}" data-action="choose-app" data-bundle-id="${escapeHtml(a.bundle_id)}">
+      <div class="sheet-app ${current ? "current" : ""} ${i === sheetCursor ? "active" : ""}" data-action="choose-app" data-bundle-id="${escapeHtml(a.bundle_id)}" data-idx="${i}">
         ${avatar(a.name, "avatar-sm")}
         <span class="name">${escapeHtml(a.name)}</span>
       </div>`;
@@ -621,6 +623,147 @@ function renderMain(): string {
   ${renderWindowDropOverlay()}`;
 }
 
+// ---------- keyboard navigation ----------
+
+/** Lists are re-derived on every keystroke, so a stored index can outlive the
+ * rows it pointed at. Every read clamps rather than trusting the stored value. */
+function clampCursor(i: number, len: number): number {
+  if (len === 0) return 0;
+  return Math.min(Math.max(i, 0), len - 1);
+}
+
+interface NavList {
+  len: number;
+  cursor: number;
+  setCursor: (i: number) => void;
+  activate: () => void;
+}
+
+/** Which list the arrow keys drive right now. Order matters: the sheet is
+ * modal, and Settings has no list of its own. */
+function navList(): NavList | null {
+  if (state.sheet) {
+    const apps = sheetApps(state.sheet);
+    return {
+      len: apps.length,
+      cursor: clampCursor(state.sheetCursor, apps.length),
+      setCursor: (i) => (state.sheetCursor = i),
+      activate: () => {
+        const a = apps[clampCursor(state.sheetCursor, apps.length)];
+        if (a) void chooseApp(a.bundle_id);
+      },
+    };
+  }
+  if (state.settingsOpen) return null;
+  if (state.tab === "extensions") {
+    const rows = filteredAssociations();
+    return {
+      len: rows.length,
+      cursor: clampCursor(state.extCursor, rows.length),
+      setCursor: (i) => (state.extCursor = i),
+      activate: () => {
+        const r = rows[clampCursor(state.extCursor, rows.length)];
+        if (r) {
+          openSheet("ext", r.ext);
+          state.sheetCursor = 0;
+        }
+      },
+    };
+  }
+  if (state.tab === "apps") {
+    const apps = filteredApps();
+    const cur = Math.max(
+      0,
+      apps.findIndex((a) => a.bundle_id === state.selectedBundleId),
+    );
+    return {
+      len: apps.length,
+      cursor: cur,
+      // The Apps tab already tracks its selection by bundle ID for the detail
+      // pane, so drive that rather than introducing a second source of truth.
+      setCursor: (i) => {
+        const a = apps[i];
+        if (a) state.selectedBundleId = a.bundle_id;
+      },
+      activate: () => {},
+    };
+  }
+  return null;
+}
+
+/** True while the arrow keys are driving. Toggles a class on `root` (which
+ * survives render(), since only its innerHTML is replaced) so CSS can mute the
+ * pointer's hover — otherwise the cursor row and the hovered row are both lit
+ * and read as two selections. */
+let keyboardNav = false;
+
+function setKeyboardNav(on: boolean): void {
+  if (keyboardNav === on) return;
+  keyboardNav = on;
+  root.classList.toggle("kbd-nav", on);
+}
+
+/** Last pointer position actually observed. Scrolling the list under a
+ * stationary pointer makes WebKit synthesize a mousemove at the *same*
+ * coordinates; treating that as user input let arrow-key scrolling hand
+ * control straight back to hover, which then re-seated the cursor on whatever
+ * row had slid underneath — three keypresses walked eleven rows. */
+let lastPointer = { x: -1, y: -1 };
+
+// Only a move that changes position hands control back to the mouse. Passive
+// listener touching one class, so it never triggers a re-render.
+document.addEventListener(
+  "mousemove",
+  (e) => {
+    if (e.clientX === lastPointer.x && e.clientY === lastPointer.y) return;
+    lastPointer = { x: e.clientX, y: e.clientY };
+    setKeyboardNav(false);
+  },
+  { passive: true },
+);
+
+/** Move the cursor by swapping the class directly instead of re-rendering.
+ * Hover fires per row crossed, and rebuilding 369 rows of innerHTML on each
+ * one would be visibly janky — and would fight scrollIntoView besides. */
+function moveActiveClass(selector: string, idx: number): void {
+  root
+    .querySelectorAll(`${selector}.active`)
+    .forEach((el) => el.classList.remove("active"));
+  root.querySelector(`${selector}[data-idx="${idx}"]`)?.classList.add("active");
+}
+
+// Hovering a row *is* moving the cursor — one highlight, driven by whichever
+// input the user last touched. Ignored while the keyboard is driving, so the
+// pointer resting over the list can't drag the cursor back.
+root.addEventListener("mouseover", (e) => {
+  if (keyboardNav) return;
+  const el = (e.target as HTMLElement).closest?.("[data-idx]") as HTMLElement | null;
+  if (!el) return;
+  const idx = Number(el.dataset.idx);
+  if (Number.isNaN(idx)) return;
+  if (el.classList.contains("ext-row")) {
+    state.extCursor = idx;
+    moveActiveClass(".ext-row", idx);
+  } else if (el.classList.contains("sheet-app")) {
+    state.sheetCursor = idx;
+    moveActiveClass(".sheet-app", idx);
+  }
+});
+
+function moveCursor(delta: number | "home" | "end"): boolean {
+  const nav = navList();
+  if (!nav || nav.len === 0) return false;
+  const next =
+    delta === "home"
+      ? 0
+      : delta === "end"
+        ? nav.len - 1
+        : clampCursor(nav.cursor + delta, nav.len);
+  nav.setCursor(next);
+  render();
+  return true;
+}
+
 function render() {
   const active = document.activeElement as HTMLInputElement | null;
   const focusId = active?.id || null;
@@ -640,6 +783,13 @@ function render() {
       }
     }
   }
+
+  // innerHTML is rebuilt wholesale, so the keyboard cursor has to be scrolled
+  // back into view every time. "nearest" keeps it from yanking the list when
+  // the row is already visible.
+  root
+    .querySelector(".ext-row.active, .sheet-app.active, .app-row.selected")
+    ?.scrollIntoView({ block: "nearest" });
 }
 
 // ---------- mutation helpers ----------
@@ -987,11 +1137,16 @@ root.addEventListener("click", (e) => {
       render();
       break;
     case "open-ext-sheet":
+      // Keep the keyboard cursor where the mouse just was, so arrows resume
+      // from the clicked row rather than jumping back to the top.
+      if (target.dataset.idx) state.extCursor = Number(target.dataset.idx);
       openSheet("ext", target.dataset.ext!);
+      state.sheetCursor = 0;
       render();
       break;
     case "open-scheme-sheet":
       openSheet("scheme", target.dataset.scheme!);
+      state.sheetCursor = 0;
       render();
       break;
     case "close-sheet":
@@ -1034,6 +1189,7 @@ root.addEventListener("click", (e) => {
     case "sheet-scope":
       if (state.sheet) {
         state.sheet.showAll = target.dataset.scope === "all";
+        state.sheetCursor = 0;
         render();
       }
       break;
@@ -1116,6 +1272,8 @@ root.addEventListener("input", (e) => {
   const target = e.target as HTMLInputElement;
   if (target.dataset.action === "ext-query") {
     state.extQuery = target.value;
+    // A new result set means the old cursor position is meaningless.
+    state.extCursor = 0;
     render();
   } else if (target.dataset.action === "apps-query") {
     state.appsQuery = target.value;
@@ -1123,6 +1281,7 @@ root.addEventListener("input", (e) => {
   } else if (target.dataset.action === "sheet-query") {
     if (state.sheet) {
       state.sheet.query = target.value;
+      state.sheetCursor = 0;
       render();
     }
   }
@@ -1185,7 +1344,37 @@ function recordShortcutKey(e: KeyboardEvent): void {
 document.addEventListener("keydown", (e) => {
   if (state.recordingShortcut) {
     recordShortcutKey(e);
-  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+    return;
+  }
+
+  // Arrows and Enter drive the list even while the search field has focus —
+  // that is the whole point, so the caret keys are claimed here.
+  if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (moveCursor(e.key === "ArrowDown" ? 1 : -1)) {
+        e.preventDefault();
+        setKeyboardNav(true);
+      }
+      return;
+    }
+    if (e.key === "Home" || e.key === "End") {
+      if (moveCursor(e.key === "Home" ? "home" : "end")) {
+        e.preventDefault();
+        setKeyboardNav(true);
+      }
+      return;
+    }
+    if (e.key === "Enter") {
+      const nav = navList();
+      if (nav && nav.len > 0) {
+        e.preventDefault();
+        nav.activate();
+      }
+      return;
+    }
+  }
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
     let id: string;
     if (state.sheet) {
@@ -1197,9 +1386,25 @@ document.addEventListener("keydown", (e) => {
       id = state.tab === "apps" ? "apps-search-input" : "ext-search-input";
     }
     document.getElementById(id)?.focus();
-  } else if (e.key === "Escape" && state.sheet) {
-    state.sheet = null;
-    render();
+  } else if (e.key === "Escape") {
+    if (state.sheet) {
+      state.sheet = null;
+      render();
+      return;
+    }
+    // Escape in a search field clears it first, and only gives up focus once
+    // there is nothing left to clear.
+    const el = document.activeElement as HTMLInputElement | null;
+    if (el?.dataset.action === "ext-query" && state.extQuery) {
+      state.extQuery = "";
+      state.extCursor = 0;
+      render();
+    } else if (el?.dataset.action === "apps-query" && state.appsQuery) {
+      state.appsQuery = "";
+      render();
+    } else {
+      el?.blur();
+    }
   }
 });
 
