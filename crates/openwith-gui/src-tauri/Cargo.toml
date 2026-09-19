@@ -23,6 +23,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
+tauri-plugin-window-state = "2"
 serde.workspace = true
 serde_json.workspace = true
 

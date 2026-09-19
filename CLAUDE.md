@@ -161,6 +161,7 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
 Run against the built .app (not just `tauri dev`) before tagging any release with GUI changes. Naive "it compiles + the window opens" testing has shipped real bugs; every control must be exercised for a *real observable effect* (confirm sets/undos with `openwith current <ext>`).
 
 - [ ] Close the main window, reopen via Dock click AND via popover "Open main window" — repeat ×3
+- [ ] Move and resize the main window, quit, relaunch — it returns to the same size and position; repeat with the window closed before quitting; the popover still anchors to the tray rather than a remembered spot
 - [ ] Toggle "Show in menu bar" off/on ×3 — exactly one tray icon at every step
 - [ ] Hide Dock icon on/off; then turn the tray off while the Dock is hidden — Dock icon must come back
 - [ ] Appearance: flip System/Light/Dark with the popover open — both windows restyle AND the Dock icon flips light/dark (System follows macOS)

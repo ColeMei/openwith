@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering;
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -14,7 +15,22 @@ pub fn run() {
     // registered, so the handler doesn't need to know which combo it is.
     let default_shortcut = Shortcut::new(Some(Modifiers::ALT | Modifiers::SUPER), Code::KeyO);
 
+    // Geometry the main window remembers between launches. VISIBLE is
+    // deliberately left out: the close button hides that window rather than
+    // destroying it, so a quit with it hidden would otherwise persist
+    // "invisible" and the app would start with no window at all.
+    let window_state_flags =
+        StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN;
+
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(window_state_flags)
+                // The popover is placed against the tray icon on every show,
+                // so a remembered position would only fight the positioner.
+                .with_denylist(&["menubar"])
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_positioner::init())
@@ -35,7 +51,7 @@ pub fn run() {
         )
         .manage(commands::AppsCache::default())
         .manage(commands::PopoverPinned::default())
-        .on_window_event(|window, event| match (window.label(), event) {
+        .on_window_event(move |window, event| match (window.label(), event) {
             // The popover behaves like a menu: clicking anywhere else closes
             // it — unless pinned, which keeps it up for drag-and-drop.
             ("menubar", tauri::WindowEvent::Focused(false)) => {
@@ -52,6 +68,10 @@ pub fn run() {
             // unreopenable — the hidden popover window keeps it alive.
             ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
+                // The window is never destroyed, so the plugin's own
+                // save-on-close never fires for it. Persist here instead, so
+                // the geometry survives even if the app is later force-quit.
+                let _ = window.app_handle().save_window_state(window_state_flags);
                 let _ = window.hide();
             }
             _ => {}
