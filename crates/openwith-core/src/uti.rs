@@ -19,18 +19,26 @@ unsafe extern "C" {
 
 /// Resolve the UTI for a file extension.
 ///
-/// Asks Launch Services first: apps can register their own UTIs, and the
-/// system mapping is what Finder actually consults, so writing a handler to
-/// any other UTI would silently have no effect. The hardcoded map is only a
-/// fallback for extensions the system maps to a dynamic (`dyn.*`) type.
+/// Whatever Launch Services answers is the answer, including a dynamic
+/// (`dyn.*`) type. The system mapping is what Finder actually consults, so
+/// writing a handler to any other UTI would silently have no effect — and a
+/// `dyn.*` type is a perfectly settable target, not a failure (issue #16).
+/// Dynamic identifiers encode the extension itself, so they are stable for a
+/// given extension across machines.
 pub fn uti_for_extension(ext: &str) -> Result<String> {
     let ext = ext.trim_start_matches('.').to_lowercase();
+
+    // Launch Services invents a dynamic UTI for literally any tag, including
+    // the empty string, so this is the one case we have to reject ourselves.
+    if ext.is_empty() {
+        return Err(anyhow!("no file extension given"));
+    }
 
     if let Some(cached) = extension_cache().lock().unwrap().get(&ext) {
         return cached.clone().ok_or_else(|| unrecognized_extension(&ext));
     }
 
-    let resolved = system_uti(&ext).or_else(|| hardcoded_uti(&ext).map(str::to_string));
+    let resolved = system_uti(&ext);
     extension_cache()
         .lock()
         .unwrap()
@@ -72,7 +80,7 @@ pub fn extensions_sharing_uti(ext: &str, uti: &str, extra_candidates: &[String])
     let ext = ext.trim_start_matches('.').to_lowercase();
     let mut siblings = std::collections::BTreeSet::new();
 
-    let known = HARDCODED_UTIS.iter().map(|(e, _)| (*e).to_string());
+    let known = COMMON_EXTENSIONS.iter().map(|e| (*e).to_string());
     let extra = extra_candidates
         .iter()
         .map(|c| c.trim_start_matches('.').to_lowercase());
@@ -146,132 +154,29 @@ fn system_uti(ext: &str) -> Option<String> {
     }
 
     let uti = unsafe { CFString::wrap_under_create_rule(uti_ref) }.to_string();
-    if uti.is_empty() || uti.starts_with("dyn.") {
-        None
-    } else {
-        Some(uti)
-    }
+    if uti.is_empty() { None } else { Some(uti) }
 }
 
-/// Fallback map for extensions the system resolves to a dynamic UTI.
-const HARDCODED_UTIS: &[(&str, &str)] = &[
+/// Candidate pool for sibling detection: extensions common enough to be worth
+/// probing even when no installed app declares them. These are only candidates
+/// — every UTI is still resolved through Launch Services.
+const COMMON_EXTENSIONS: &[&str] = &[
     // Text / markup
-    ("txt", "public.plain-text"),
-    ("rtf", "public.rtf"),
-    ("md", "net.daringfireball.markdown"),
-    ("markdown", "net.daringfireball.markdown"),
-    ("log", "public.log"),
-    ("csv", "public.comma-separated-values-text"),
-    ("tsv", "public.tab-separated-values-text"),
-    // Web
-    ("html", "public.html"),
-    ("htm", "public.html"),
-    ("css", "public.css"),
-    ("js", "com.netscape.javascript-source"),
-    ("json", "public.json"),
-    ("xml", "public.xml"),
-    ("svg", "public.svg-image"),
-    // Programming languages
-    ("rs", "org.rust-lang.rust-source"),
-    ("py", "public.python-script"),
-    ("rb", "public.ruby-script"),
-    ("go", "org.golang.go-source"),
-    ("java", "com.sun.java-source"),
-    ("c", "public.c-source"),
-    ("cpp", "public.c-plus-plus-source"),
-    ("cc", "public.c-plus-plus-source"),
-    ("cxx", "public.c-plus-plus-source"),
-    ("h", "public.c-header"),
-    ("hpp", "public.c-plus-plus-header"),
-    ("swift", "public.swift-source"),
-    ("m", "public.objective-c-source"),
-    ("ts", "org.typescriptlang.typescript"),
-    ("tsx", "org.typescriptlang.typescriptx"),
-    ("jsx", "org.reactjs.jsx"),
-    ("sh", "public.shell-script"),
-    ("bash", "public.shell-script"),
-    ("zsh", "public.shell-script"),
-    ("pl", "public.perl-script"),
-    ("php", "public.php-script"),
-    ("lua", "org.lua.lua-source"),
-    ("r", "org.r-project.r-source"),
-    ("sql", "public.sql"),
-    // Config / data
-    ("yaml", "public.yaml"),
-    ("yml", "public.yaml"),
-    ("toml", "public.toml"),
-    ("ini", "public.ini"),
-    ("cfg", "public.ini"),
-    ("plist", "com.apple.property-list"),
-    ("env", "public.plain-text"),
-    // Documents
-    ("pdf", "com.adobe.pdf"),
-    ("doc", "com.microsoft.word.doc"),
-    ("docx", "org.openxmlformats.wordprocessingml.document"),
-    ("xls", "com.microsoft.excel.xls"),
-    ("xlsx", "org.openxmlformats.spreadsheetml.sheet"),
-    ("ppt", "com.microsoft.powerpoint.ppt"),
-    ("pptx", "org.openxmlformats.presentationml.presentation"),
-    ("pages", "com.apple.iwork.pages.sffpages"),
-    ("numbers", "com.apple.iwork.numbers.sffnumbers"),
-    ("keynote", "com.apple.iwork.keynote.sffkey"),
+    "txt", "rtf", "md", "markdown", "log", "csv", "tsv", // Web
+    "html", "htm", "css", "js", "json", "xml", "svg", // Programming languages
+    "rs", "py", "rb", "go", "java", "c", "cpp", "cc", "cxx", "h", "hpp", "swift", "m", "ts", "tsx",
+    "jsx", "sh", "bash", "zsh", "pl", "php", "lua", "r", "sql", // Config / data
+    "yaml", "yml", "toml", "ini", "cfg", "plist", "env", // Documents
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pages", "numbers", "keynote",
     // Images
-    ("jpg", "public.jpeg"),
-    ("jpeg", "public.jpeg"),
-    ("png", "public.png"),
-    ("gif", "com.compuserve.gif"),
-    ("bmp", "com.microsoft.bmp"),
-    ("tiff", "public.tiff"),
-    ("tif", "public.tiff"),
-    ("webp", "public.webp"),
-    ("ico", "com.microsoft.ico"),
-    ("heic", "public.heic"),
-    ("heif", "public.heic"),
-    ("raw", "public.camera-raw-image"),
-    ("psd", "com.adobe.photoshop-image"),
+    "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "webp", "ico", "heic", "heif", "raw", "psd",
     // Audio
-    ("mp3", "public.mp3"),
-    ("wav", "com.microsoft.waveform-audio"),
-    ("aac", "public.aac-audio"),
-    ("flac", "org.xiph.flac"),
-    ("ogg", "org.xiph.ogg-vorbis"),
-    ("m4a", "com.apple.m4a-audio"),
-    ("aiff", "public.aiff-audio"),
-    ("aif", "public.aiff-audio"),
-    ("wma", "com.microsoft.windows-media-wma"),
-    // Video
-    ("mp4", "public.mpeg-4"),
-    ("m4v", "com.apple.m4v-video"),
-    ("mov", "com.apple.quicktime-movie"),
-    ("avi", "public.avi"),
-    ("mkv", "org.matroska.mkv"),
-    ("webm", "org.webmproject.webm"),
-    ("wmv", "com.microsoft.windows-media-wmv"),
-    ("flv", "com.adobe.flash-video"),
-    // Archives
-    ("zip", "public.zip-archive"),
-    ("tar", "public.tar-archive"),
-    ("gz", "org.gnu.gnu-zip-archive"),
-    ("gzip", "org.gnu.gnu-zip-archive"),
-    ("bz2", "public.bzip2-archive"),
-    ("xz", "org.tukaani.xz-archive"),
-    ("7z", "org.7-zip.7-zip-archive"),
-    ("rar", "com.rarlab.rar-archive"),
-    ("dmg", "com.apple.disk-image-udif"),
-    ("iso", "public.iso-image"),
-    // Fonts
-    ("ttf", "public.truetype-ttf-font"),
-    ("otf", "public.opentype-font"),
-    ("woff", "org.w3c.woff"),
-    ("woff2", "org.w3c.woff2"),
+    "mp3", "wav", "aac", "flac", "ogg", "m4a", "aiff", "aif", "wma", // Video
+    "mp4", "m4v", "mov", "avi", "mkv", "webm", "wmv", "flv", // Archives
+    "zip", "tar", "gz", "gzip", "bz2", "xz", "7z", "rar", "dmg", "iso", // Fonts
+    "ttf", "otf", "woff", "woff2",
 ];
 
-fn hardcoded_uti(ext: &str) -> Option<&'static str> {
-    HARDCODED_UTIS
-        .iter()
-        .find(|(known, _)| *known == ext)
-        .map(|(_, uti)| *uti)
-}
 #[cfg(test)]
 mod tests {
     use super::{extensions_sharing_uti, shared_uti_note, uti_for_extension};
@@ -282,13 +187,35 @@ mod tests {
         assert_eq!(uti_for_extension(".PDF").unwrap(), "com.adobe.pdf");
     }
 
+    /// Issue #16: an extension no installed app claims resolves to a dynamic
+    /// UTI, which Launch Services accepts as a handler target. Refusing it
+    /// blocked `set` on extensions Finder changes without complaint.
     #[test]
-    fn rejects_unknown_extensions_instead_of_returning_dynamic_utis() {
-        let err = uti_for_extension("openwithtotallyunknownext")
-            .unwrap_err()
-            .to_string();
+    fn resolves_unclaimed_extensions_to_dynamic_utis() {
+        let uti = uti_for_extension("openwithtotallyunknownext").unwrap();
 
-        assert!(err.contains("not recognized by macOS"));
+        assert!(uti.starts_with("dyn."), "expected a dynamic UTI, got {uti}");
+    }
+
+    /// Launch Services mints a dynamic UTI for any tag at all, including the
+    /// empty one, so an empty extension is the single case we reject.
+    #[test]
+    fn rejects_an_empty_extension() {
+        assert!(uti_for_extension("").is_err());
+        assert!(uti_for_extension(".").is_err());
+    }
+
+    /// The old hardcoded table aimed `set` at a UTI the system did not map the
+    /// extension to, so the write landed on a type nothing consulted. Every
+    /// answer must now come from Launch Services itself.
+    #[test]
+    fn resolution_matches_what_launch_services_reports() {
+        for ext in ["jsx", "tsx", "rar", "env", "keynote", "erb"] {
+            let resolved = uti_for_extension(ext).unwrap();
+            let system = super::system_uti(ext).unwrap();
+
+            assert_eq!(resolved, system, "{ext} resolved off-system");
+        }
     }
 
     #[test]

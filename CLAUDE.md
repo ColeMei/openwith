@@ -47,7 +47,7 @@ crates/
     scanner.rs         -- app discovery via mdfind + fs walk, app/bundle-ID resolution
     plist.rs           -- Info.plist parsing via the plist crate (extensions, content types, URL schemes)
     launchservices.rs  -- native macOS Launch Services FFI: UTI and URL scheme handlers
-    uti.rs             -- UTI resolution: system lookup first, hardcoded fallback map, memoized; shared-UTI sibling detection
+    uti.rs             -- UTI resolution: whatever Launch Services reports, incl. dynamic `dyn.*` types, memoized; shared-UTI sibling detection
     listing.rs         -- parallel default-handler queries shared by TUI, export, and list
     config.rs          -- TOML export/import logic ([associations] + [schemes])
     history.rs         -- append-only change log (~/Library/Application Support/openwith/history.json)
@@ -82,7 +82,7 @@ crates/
 ### Key patterns
 
 - `openwith-core::launchservices` uses FFI to `LSCopyDefaultRoleHandlerForContentType`, `LSSetDefaultRoleHandlerForContentType`, and the URL scheme equivalents. No external CLI dependencies.
-- `openwith-core::uti` asks Launch Services for the UTI first (the mapping Finder actually uses) and falls back to a hardcoded table only for extensions the system maps to a dynamic (`dyn.*`) type. Lookups are memoized process-wide.
+- `openwith-core::uti` returns whatever UTI Launch Services reports and nothing else — that mapping is the one Finder consults, so writing a handler to any other UTI silently has no effect. That includes **dynamic** (`dyn.*`) types, minted for extensions no installed app claims: they are ordinary settable targets, and their identifiers encode the extension itself, so they are stable per-extension across machines. A hardcoded UTI table used to override them; it aimed `set` at types the system did not map the extension to, so writes landed where nothing read them (`.jsx`, `.tsx`, `.rar`) and `.env` fell through to the shared `public.plain-text` — removed (issue #16). What survives is `COMMON_EXTENSIONS`, a plain candidate *list* for sibling detection with no UTI opinions. Launch Services mints a dynamic UTI for any tag including the empty string, so an empty extension is the one input `uti_for_extension` rejects itself. Lookups are memoized process-wide.
 - macOS maps defaults to UTIs, not extensions; `uti::extensions_sharing_uti` finds sibling extensions so commands can warn about side effects.
 - `openwith-core::scanner` has `resolve_app_or_bundle_id(apps, value)` accepting app names or bundle IDs, and `resolve_name(apps, bundle_id)` to map bundle IDs back to app names.
 - `openwith-core::listing` parallelizes default queries using `std::thread::scope` with chunks of 20; the TUI runs it in a background thread behind the loading screen.
