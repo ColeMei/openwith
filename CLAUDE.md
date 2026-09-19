@@ -180,7 +180,7 @@ Run against the built .app (not just `tauri dev`) before tagging any release wit
 - [ ] History panel scrolls at 50 entries and updates after changes
 - [ ] History window: default shows only the last 7 days in both the Profiles panel and the popover; "Show all" reveals older rows and toggles back; switching the Settings segment (1 week/1 month/All) refetches both surfaces; the popover follows a change made in the main window without a relaunch
 - [ ] Check Now (updates) reports a sensible result on both channels
-- [ ] README screenshots (from the design prototype, `artifacts/gui-*.png`) still match the shipped UI — recapture if the UI changed
+- [ ] README screenshots still match the shipped UI — recapture if it changed. GUI shots (`artifacts/gui-*.png`) come from the design prototype; TUI shots (`artifacts/tui-*.png`) are regenerated with `./scripts/capture-tui.sh`
 
 ### Release templates
 

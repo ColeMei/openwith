@@ -5,7 +5,7 @@
 <h1 align="center">OpenWith</h1>
 
 <p align="center">
-  Manage macOS "Open With" defaults from the terminal.
+  Manage macOS "Open With" defaults — from a window or from the terminal.
 </p>
 
 <p align="center">
@@ -21,21 +21,23 @@
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat-square" alt="Platform: macOS">
 </p>
 
-**OpenWith** is a small Rust-based macOS tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs. It ships as a terminal tool (CLI + interactive TUI) and a native GUI app, both driven by the same Rust core.
+**OpenWith** is a small Rust-based macOS tool for inspecting and managing default apps for file types. It lets you see which app is currently set as the default for each file extension and update those associations from one place, without repetitive clicks or guessing bundle IDs.
+
+It ships as two front ends over the same Rust core, sharing one change history — use either, or both.
+
+<p align="center"><b>OpenWith.app</b> — a native window, with a menu-bar popover</p>
 
 <p align="center">
-  <img src="artifacts/gui-extensions-light.png" alt="OpenWith GUI — Extensions view: every file extension with its current default app, click a row to change it" width="760">
+  <img src="artifacts/gui-extensions-light.png" alt="OpenWith GUI — Extensions view: every file extension with its current default app, click a row to change it" width="820">
 </p>
+
+<p align="center"><b>openwith</b> — a CLI, with a full-screen TUI</p>
 
 <p align="center">
-  <img src="artifacts/gui-apps-light.png" alt="Apps view — per-app defaults with one-click claiming of supported extensions" width="63%">
-  <img src="artifacts/gui-menubar-popover.png" alt="Menu bar popover — quick extension lookup, change, and undo" width="26%">
+  <img src="artifacts/tui-extensions.png" alt="OpenWith TUI — Extensions tab: every file extension with its current default app and bundle ID" width="820">
 </p>
-
 
 ## Install
-
-OpenWith ships in two flavors that share the same engine and change history — install either, or both:
 
 - **`openwith` (formula)** — the `openwith` command: CLI plus interactive TUI. Pick this if you live in the terminal or want to script/dotfile your associations.
 - **`openwith-gui` (cask)** — OpenWith.app: a native windowed app with a menu-bar popover. Pick this if you'd rather point and click.
@@ -86,7 +88,20 @@ To build it from source instead: `cd crates/openwith-gui && npm install && npm r
 
 > Installed the cask as `openwith` (pre-v0.5.2)? It was renamed: `brew uninstall --cask openwith && brew install --cask ColeMei/openwith/openwith-gui`.
 
-## Quick Start
+## The GUI
+
+Four tabs — Extensions, Apps, Schemes and Profiles — plus a settings pane. Click any row to change its default; drop a file on the window to look its extension up.
+
+The **Apps** tab turns the question around: pick an app, see everything it can open, and claim any of it in one click. The **menu-bar popover** keeps a lookup field, recent changes and per-entry undo one keystroke away (⌥⌘O by default, rebindable).
+
+<p align="center">
+  <img src="artifacts/gui-apps-light.png" alt="Apps view — per-app defaults with one-click claiming of supported extensions" width="63%">
+  <img src="artifacts/gui-menubar-popover.png" alt="Menu bar popover — quick extension lookup, change, and undo" width="26%">
+</p>
+
+## The terminal
+
+### Quick Start
 
 ```bash
 openwith                    # Launch interactive TUI (extensions view)
@@ -106,10 +121,20 @@ Run `openwith --help` to see all commands.
 
 ### Interactive TUI
 
-Run `openwith` with no arguments to browse all file extensions, see their current defaults, and change them interactively. The TUI has two tabs you can switch between with `Tab`:
+Run `openwith` with no arguments to browse all file extensions, see their current defaults, and change them interactively. Press `Enter` on any row to pick a new default from the apps that actually declare support for it — `Tab` widens the list to every installed app.
+
+<p align="center">
+  <img src="artifacts/tui-picker.png" alt="TUI app picker — choosing a new default for .3g2 from the apps that support it" width="820">
+</p>
+
+`Tab` at the top level switches between the two views:
 
 - **Extensions** — browse all file extensions, see their current default app, and change defaults via an app picker
 - **Apps** — browse all installed apps in a master-detail view, see which extensions each app supports and which it's the default for
+
+<p align="center">
+  <img src="artifacts/tui-apps.png" alt="TUI Apps tab — master-detail view of an app's supported extensions and the ones it is default for" width="820">
+</p>
 
 Press `?` inside the TUI for keyboard shortcuts.
 
