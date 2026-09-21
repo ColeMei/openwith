@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -26,6 +27,13 @@ pub struct AppsCache(Mutex<Option<Arc<Vec<AppInfo>>>>);
 /// it). Reset every time the popover is toggled open.
 #[derive(Default)]
 pub struct PopoverPinned(pub AtomicBool);
+
+/// Whether the main window has been revealed. The window is configured
+/// hidden so the first frame the user sees is a painted one, which also means
+/// the reopen paths must stay shut until then — they would otherwise put the
+/// empty webview on screen, the very flash the hidden start avoids.
+#[derive(Default)]
+pub struct MainWindowReady(pub AtomicBool);
 
 #[tauri::command]
 pub fn set_popover_pinned(pinned: bool, state: State<'_, PopoverPinned>) {
@@ -307,6 +315,9 @@ pub fn undo_change(
 /// Bring the main window forward; shared by the popover's "Open main window"
 /// command and the dock-icon Reopen event in lib.rs.
 pub fn show_main(app: &AppHandle) {
+    if !app.state::<MainWindowReady>().0.load(Ordering::Acquire) {
+        return;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -315,6 +326,36 @@ pub fn show_main(app: &AppHandle) {
     if let Some(popover) = app.get_webview_window("menubar") {
         let _ = popover.hide();
     }
+}
+
+/// Show the main window for the first time and open the reopen paths.
+/// Idempotent, and deliberately so: only the first caller shows the window, so
+/// the startup fallback in lib.rs cannot re-show one the user has since closed.
+pub fn reveal_main(app: &AppHandle) {
+    if app
+        .state::<MainWindowReady>()
+        .0
+        .swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
+    show_main(app);
+}
+
+/// Called by the frontend once it has applied its theme and rendered the
+/// loading UI, i.e. as soon as there is something worth showing.
+#[tauri::command]
+pub fn main_window_ready(app: AppHandle, background: String) {
+    if let Some(window) = app.get_webview_window("main") {
+        // Match the native backing surface to the CSS palette, so the frame
+        // WebKit presents first is the loading screen's colour rather than
+        // white. Best-effort: a colour this can't parse must not leave the
+        // window hidden, which is the one failure with no way back.
+        if let Ok(color) = tauri::window::Color::from_str(background.trim()) {
+            let _ = window.set_background_color(Some(color));
+        }
+    }
+    reveal_main(&app);
 }
 
 #[tauri::command]
@@ -454,7 +495,7 @@ pub fn relaunch_finder() -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_snapshot(cache: State<'_, AppsCache>) -> Result<SnapshotDto, String> {
     let apps = refresh_apps(&cache)?;
 

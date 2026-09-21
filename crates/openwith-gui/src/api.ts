@@ -116,6 +116,7 @@ export const api = {
     invoke<RecentChangeDto[]>("get_recent_changes", { limit, windowDays }),
   undoChange: (kind: string, key: string, timestamp: number) =>
     invoke<SetResultDto>("undo_change", { kind, key, timestamp }),
+  mainWindowReady: (background: string) => invoke<void>("main_window_ready", { background }),
   showMainWindow: () => invoke<void>("show_main_window"),
   quitApp: () => invoke<void>("quit_app"),
   setTrayEnabled: (enabled: boolean) =>

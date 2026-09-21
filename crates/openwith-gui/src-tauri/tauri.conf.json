@@ -14,6 +14,7 @@
     "windows": [
       {
         "title": "OpenWith",
+        "visible": false,
         "width": 880,
         "height": 620,
         "minWidth": 720,
