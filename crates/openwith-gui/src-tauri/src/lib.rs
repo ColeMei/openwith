@@ -51,6 +51,21 @@ pub fn run() {
         )
         .manage(commands::AppsCache::default())
         .manage(commands::PopoverPinned::default())
+        .manage(commands::MainWindowReady::default())
+        .setup(|app| {
+            // The main window is configured hidden and is normally revealed by
+            // the frontend's main_window_ready call. Nothing else can reveal
+            // it, so if the webview never reaches that call the app would run
+            // with no window and no way to open one. Show it regardless after
+            // a grace period well past a normal startup: an unpainted window
+            // the user can close beats an app that appears not to launch.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                commands::reveal_main(&handle);
+            });
+            Ok(())
+        })
         .on_window_event(move |window, event| match (window.label(), event) {
             // The popover behaves like a menu: clicking anywhere else closes
             // it — unless pinned, which keeps it up for drag-and-drop.
@@ -90,6 +105,7 @@ pub fn run() {
             commands::get_recent_changes,
             commands::undo_change,
             commands::show_main_window,
+            commands::main_window_ready,
             commands::quit_app,
             commands::set_tray_enabled,
             commands::set_dock_visible,

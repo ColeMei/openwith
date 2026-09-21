@@ -1451,6 +1451,25 @@ async function applyLaunchAtLogin(wanted: boolean) {
 async function bootstrap() {
   render();
 
+  // Theme initialization precedes this module. Reveal the rendered loading UI
+  // with a matching native background, before starting any scan or startup IPC.
+  // A rejection here must not abort startup: the backend reveals the window on
+  // its own after a grace period, and the scan should still run.
+  await api
+    .mainWindowReady(
+      getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+    )
+    .catch(() => {});
+  // Give the now-visible webview a rendering opportunity. The timeout keeps
+  // startup progressing if the user hides/minimizes it before the next frame.
+  await new Promise<void>((resolve) => {
+    const timeout = window.setTimeout(resolve, 100);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      clearTimeout(timeout);
+      resolve();
+    }));
+  });
+
   // Apply persisted preferences that live outside the webview.
   api.setTrayEnabled(state.settings.showMenuBar).catch(() => {});
   // Replace the launch-time default with the saved popover shortcut.
