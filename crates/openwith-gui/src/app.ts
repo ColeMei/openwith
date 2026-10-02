@@ -27,7 +27,7 @@ import {
   type Tab,
   type ToastState,
 } from "./state";
-import { applyTheme, type Appearance } from "./theme";
+import { applyTheme, themeReady, type Appearance } from "./theme";
 
 const root = document.getElementById("app")!;
 
@@ -1449,9 +1449,12 @@ async function applyLaunchAtLogin(wanted: boolean) {
 }
 
 async function bootstrap() {
+  // Resolve the theme from macOS before anything is painted, so the window is
+  // revealed on the right palette.
+  await themeReady;
   render();
 
-  // Theme initialization precedes this module. Reveal the rendered loading UI
+  // Theme initialization is awaited above. Reveal the rendered loading UI
   // with a matching native background, before starting any scan or startup IPC.
   // A rejection here must not abort startup: the backend reveals the window on
   // its own after a grace period, and the scan should still run.

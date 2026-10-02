@@ -3,6 +3,8 @@
  * settings; the resolved theme is stamped as data-theme on <html>, which
  * styles.css keys its dark palette off. */
 
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import { api } from "./api";
 
 const SETTINGS_KEY = "openwith.settings";
@@ -21,11 +23,19 @@ function storedAppearance(): Appearance {
 
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 
+/** The OS appearance as macOS reports it, once known. WebKit's
+ * prefers-color-scheme can answer "light" for a window that hasn't been shown
+ * yet (seen on a macOS 27 beta), so the hidden main window resolved the light
+ * palette, revealed on it, and flipped to dark a frame later (issue #22). The
+ * native value is app-wide and doesn't depend on window visibility; the media
+ * query only stands in until it arrives. */
+let nativeDark: boolean | null = null;
+
 /** Stamp the resolved theme on <html>. Call whenever the setting changes. */
 export function applyTheme(): void {
   const appearance = storedAppearance();
   const dark =
-    appearance === "system" ? systemDark.matches : appearance === "dark";
+    appearance === "system" ? (nativeDark ?? systemDark.matches) : appearance === "dark";
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   // The Dock icon follows the resolved theme too — macOS only swaps bundle
   // icons for the *system* appearance, so the app does it itself. Both
@@ -42,3 +52,22 @@ systemDark.addEventListener("change", applyTheme);
 window.addEventListener("storage", applyTheme);
 
 applyTheme();
+
+/** Resolves once the native appearance is applied (or couldn't be read).
+ * Startup awaits it before revealing the main window. */
+export const themeReady: Promise<void> = (async () => {
+  const win = getCurrentWindow();
+  try {
+    const theme = await win.theme();
+    if (theme) {
+      nativeDark = theme === "dark";
+      applyTheme();
+    }
+    await win.onThemeChanged(({ payload }) => {
+      nativeDark = payload === "dark";
+      applyTheme();
+    });
+  } catch {
+    // Keep the media query's answer.
+  }
+})();
