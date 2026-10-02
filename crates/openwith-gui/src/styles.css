@@ -60,8 +60,8 @@
 }
 
 /* Dark theme is applied by stamping data-theme="dark" on <html> (main.ts):
-   the Appearance setting resolves System via matchMedia, so CSS never needs
-   the media query directly. */
+   the Appearance setting resolves System from the native macOS appearance
+   (theme.ts), so CSS never needs the media query directly. */
 :root[data-theme="dark"] {
   --bg: #201d1b;
   --panel: #292521;

@@ -35,6 +35,11 @@ pub struct PopoverPinned(pub AtomicBool);
 #[derive(Default)]
 pub struct MainWindowReady(pub AtomicBool);
 
+/// The CSS `--bg` of each palette in styles.css, for painting the native
+/// window before the webview can report its own.
+pub const BG_LIGHT: tauri::window::Color = tauri::window::Color(0xfa, 0xf8, 0xf5, 0xff);
+pub const BG_DARK: tauri::window::Color = tauri::window::Color(0x20, 0x1d, 0x1b, 0xff);
+
 #[tauri::command]
 pub fn set_popover_pinned(pinned: bool, state: State<'_, PopoverPinned>) {
     state.0.store(pinned, Ordering::Relaxed);
@@ -331,15 +336,17 @@ pub fn show_main(app: &AppHandle) {
 /// Show the main window for the first time and open the reopen paths.
 /// Idempotent, and deliberately so: only the first caller shows the window, so
 /// the startup fallback in lib.rs cannot re-show one the user has since closed.
-pub fn reveal_main(app: &AppHandle) {
+/// Returns whether this call was the one that revealed it.
+pub fn reveal_main(app: &AppHandle) -> bool {
     if app
         .state::<MainWindowReady>()
         .0
         .swap(true, Ordering::AcqRel)
     {
-        return;
+        return false;
     }
     show_main(app);
+    true
 }
 
 /// Called by the frontend once it has applied its theme and rendered the
