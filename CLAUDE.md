@@ -129,6 +129,7 @@ crates/
 | `0.0.x` (patch) | Bug fixes, small tweaks, docs | v0.1.1 |
 | `0.x.0` (minor) | New features, notable behavior changes | v0.2.0 |
 | `x.0.0` (major) | Reserved — standalone app, public distribution, breaking changes | future |
+| `-rc.N` (pre-release) | A fix the reporter must confirm before it ships, typically one we can only reproduce synthetically | v0.6.5-rc.1 |
 
 When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) to match the tag — CLI and GUI share this single version (lockstep). Also keep `crates/openwith-gui/package.json` in sync (cosmetic only; the bundle version comes from Cargo).
 
@@ -156,6 +157,38 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
    The app is unsigned (no Apple Developer ID yet) — first launch needs `xattr -dr com.apple.quarantine /Applications/OpenWith.app` or right-click → Open.
 8. Bump the Homebrew formula in `ColeMei/homebrew-openwith` (url + sha256 of the new tag tarball). Since the workspace conversion, the formula's `install` block must use `system "cargo", "install", *std_cargo_args(path: "crates/openwith-cli")` (the repo root is a virtual workspace with no installable package at `.`; the path must go through the helper's `path:` keyword — appending a separate `--path` flag duplicates the helper's built-in `--path=.` and cargo rejects it).
 9. Update the `openwith-gui` cask in `ColeMei/homebrew-openwith` (`Casks/openwith-gui.rb`, url + sha256 of the .dmg release asset) with the quarantine caveat, so `brew install --cask ColeMei/openwith/openwith-gui` works for the GUI. (The cask was named `openwith` before v0.5.2.)
+
+
+### Pre-releases
+
+Cut a pre-release when a fix needs the reporter's confirmation before it ships, typically when the bug only occurs on their setup (e.g. a macOS beta) and we can only reproduce it synthetically. v0.6.4 shipped as "fixed" for a bug that came back on the reporter's machine; a pre-release avoids another round of that.
+
+1. Keep the fix in its PR; don't merge it yet.
+2. Branch off the PR head (`git switch -c rc/vX.Y.Z-rc.N`) and bump the workspace version and `package.json` to `X.Y.Z-rc.N` there. The app's update check compares version strings for equality, so the build must report its own rc version or it shows a bogus "update available". This branch stays local: only the tag is pushed, so the PR never carries the bump, and the branch can be deleted once the tag is up (the tag keeps the commit).
+3. Run the same validation as a release. For the smoke test, the checklist items that exercise the change are enough for an rc (run them against the built .app); the **full** checklist is still mandatory before the final tag.
+4. `npm run tauri build`, then tag and publish:
+   ```bash
+   git tag vX.Y.Z-rc.N && git push origin vX.Y.Z-rc.N
+   gh release create vX.Y.Z-rc.N --prerelease --title vX.Y.Z-rc.N --notes "..." \
+     target/release/bundle/dmg/OpenWith_X.Y.Z-rc.N_aarch64.dmg
+   ```
+   Check `gh api repos/ColeMei/openwith/releases/latest` still returns the last stable tag.
+5. **Don't** bump the Homebrew formula or cask; Homebrew stays on stable. Point the reporter at the release page in the issue.
+6. Once confirmed, merge the PR and cut `vX.Y.Z` from `main` with the normal release process. Leave the pre-release up.
+
+Users on the GUI's **Beta** update channel see pre-releases (Settings → Updates); Stable users don't. The update notice suggests `brew upgrade`, which doesn't apply to an rc.
+
+**Pre-release template:**
+
+```
+Test build for <issue>. Not on Homebrew.
+
+**Fixes**
+- GUI: <fix>
+
+**Install**
+Download `OpenWith_X.Y.Z-rc.N_aarch64.dmg` below and drag OpenWith into Applications. The app is unsigned, so run `xattr -dr com.apple.quarantine /Applications/OpenWith.app` before first launch (or right-click → Open).
+```
 
 ### GUI smoke-test checklist
 
