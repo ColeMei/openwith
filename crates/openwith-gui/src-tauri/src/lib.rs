@@ -59,10 +59,28 @@ pub fn run() {
             // with no window and no way to open one. Show it regardless after
             // a grace period well past a normal startup: an unpainted window
             // the user can close beats an app that appears not to launch.
+            //
+            // A slow launch (at login, after a reboot) can hit that grace
+            // period, so give the window its themed background up front;
+            // otherwise the fallback presents the white the hidden start
+            // exists to avoid (issue #22). Only the system appearance is
+            // known here, since the Appearance override lives in the
+            // webview's localStorage; main_window_ready replaces this with
+            // the exact CSS --bg.
+            if let Some(window) = app.get_webview_window("main") {
+                let dark = matches!(window.theme(), Ok(tauri::Theme::Dark));
+                let _ = window.set_background_color(Some(if dark {
+                    commands::BG_DARK
+                } else {
+                    commands::BG_LIGHT
+                }));
+            }
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(3));
-                commands::reveal_main(&handle);
+                if commands::reveal_main(&handle) {
+                    eprintln!("openwith: webview not ready after 3s, revealing main window");
+                }
             });
             Ok(())
         })
