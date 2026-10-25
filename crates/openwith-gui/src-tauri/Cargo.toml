@@ -26,6 +26,10 @@ tauri-plugin-autostart = "2"
 tauri-plugin-window-state = "2"
 serde.workspace = true
 serde_json.workspace = true
+# The release check's HTTP client: the same reqwest/rustls(ring) setup
+# tauri-plugin-updater uses, so it adds no second TLS stack.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # Runtime Dock-icon swap (NSApplication.applicationIconImage); same versions
 # tauri already pulls in transitively.

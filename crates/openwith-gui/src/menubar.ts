@@ -351,6 +351,10 @@ void popoverWindow.listen("popover-shown", () => {
   state.pinned = false;
   void refreshRecent();
   document.getElementById("pop-search")?.focus();
+  // A menu-bar app can run for weeks without its main window gaining focus,
+  // so opening the popover also counts toward the daily release check.
+  if (shared.settings.autoUpdateCheck)
+    api.checkForUpdate(shared.settings.updateChannel, false, true).catch(() => {});
 });
 
 // Settings changed in the main window (shortcut, bundle IDs) reach us here.

@@ -1,5 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
@@ -11,7 +12,12 @@ import {
   save as saveDialog,
 } from "@tauri-apps/plugin-dialog";
 
-import { api, type AppDto, type SetResultDto } from "./api";
+import {
+  api,
+  type AppDto,
+  type SetResultDto,
+  type UpdateStatusDto,
+} from "./api";
 import { avatarColor, initials } from "./colors";
 import {
   appStats,
@@ -407,15 +413,22 @@ function segmented(
   return `<span class="segmented">${buttons}</span>`;
 }
 
+/** "14:03:27" today, "12 Oct, 14:03" before. Seconds matter: repeat "Check
+ * Now" clicks within the same minute must still visibly change something. */
+function checkedAtLabel(unixSeconds: number): string {
+  const at = new Date(unixSeconds * 1000);
+  if (at.toDateString() === new Date().toDateString())
+    return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return at.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 function updateStatusLine(): string {
-  const u = state.updateStatus;
-  if (u.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
-  if (u.status?.state === "behind")
-    return `<span class="desc warn-text">Update ${escapeHtml(u.status.version)} available — <span class="mono">brew upgrade --cask openwith-gui</span></span>`;
-  if (u.status?.state === "unknown" && u.latest)
-    return `<span class="desc warn-text">Couldn't compare with release ${escapeHtml(u.latest)}</span>`;
-  if (u.status?.state === "current" && u.checkedAt)
-    return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(u.checkedAt)}</span>`;
+  const u = state.updateStatus.info;
+  if (u?.pending)
+    return `<span class="desc warn-text">Update ${escapeHtml(u.pending)} available — <span class="mono">brew upgrade --cask openwith-gui</span></span>`;
+  if (u?.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
+  if (u?.checked_at)
+    return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(checkedAtLabel(u.checked_at))}</span>`;
   return `<span class="desc">Updates ship via Homebrew</span>`;
 }
 
@@ -470,7 +483,7 @@ function renderSettings(): string {
           </span>
           <button class="btn-pill" data-action="check-updates" ${state.updateStatus.checking ? "disabled" : ""}>${state.updateStatus.checking ? "Checking…" : "Check Now"}</button>
         </div>
-        ${toggleRow("autoUpdateCheck", s.autoUpdateCheck, "Check automatically", "Once per launch, in the background")}
+        ${toggleRow("autoUpdateCheck", s.autoUpdateCheck, "Check automatically", "Once a day, in the background")}
         <div class="settings-row">
           <span><span class="label">Channel</span><span class="desc">Beta gets new features earlier</span></span>
           ${segmented("set-channel", "channel", [{ key: "stable", label: "Stable" }, { key: "beta", label: "Beta" }], s.updateChannel)}
@@ -1066,48 +1079,46 @@ function lookupDroppedFile(path: string) {
 }
 
 // ---------- update check ----------
+// The check itself runs in the backend (updates.rs) so both windows share one
+// answer; this window asks for it and renders whatever arrives.
 
-interface GithubRelease {
-  tag_name: string;
-  prerelease: boolean;
-  draft: boolean;
+function applyUpdateStatus(info: UpdateStatusDto) {
+  state.updateStatus.info = info;
+  render();
 }
 
+/** "Check Now" and channel switches: always asks GitHub. */
 async function checkForUpdates() {
   if (state.updateStatus.checking) return;
   state.updateStatus.checking = true;
-  state.updateStatus.error = null;
   render();
   try {
-    const resp = await fetch(
-      "https://api.github.com/repos/ColeMei/openwith/releases?per_page=15",
-      { headers: { Accept: "application/vnd.github+json" } },
+    applyUpdateStatus(
+      await api.checkForUpdate(state.settings.updateChannel, true, state.settings.autoUpdateCheck),
     );
-    if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
-    const releases = (await resp.json()) as GithubRelease[];
-    const beta = state.settings.updateChannel === "beta";
-    const candidate = releases.find(
-      (r) => !r.draft && (beta || !r.prerelease),
-    );
-    if (!candidate) throw new Error("no releases found");
-    state.updateStatus.latest = candidate.tag_name.replace(/^v/, "");
-    // Numeric, rc-aware comparison (release.rs): a build ahead of the newest
-    // release on its channel is current, not offered a downgrade.
-    state.updateStatus.status = await api.releaseStatus(candidate.tag_name);
-    // Seconds matter: repeat "Check Now" clicks within the same minute must
-    // still visibly change something.
-    state.updateStatus.checkedAt = new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch (e) {
-    state.updateStatus.error = e instanceof Error ? e.message : String(e);
   } finally {
     state.updateStatus.checking = false;
     render();
   }
 }
+
+/** Launch and focus: asks GitHub at most once a day, never with "Check
+ * automatically" off. The answer also arrives as `update-status`. */
+function scheduledUpdateCheck() {
+  if (!state.settings.autoUpdateCheck) return;
+  api
+    .checkForUpdate(state.settings.updateChannel, false, true)
+    .then(applyUpdateStatus)
+    .catch(() => {});
+}
+
+void getCurrentWindow().listen<UpdateStatusDto>("update-status", (e) => {
+  applyUpdateStatus(e.payload);
+});
+
+void getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+  if (focused) scheduledUpdateCheck();
+});
 
 // ---------- event delegation ----------
 
@@ -1217,7 +1228,9 @@ root.addEventListener("click", (e) => {
         api.setDockVisible(true).catch(() => {});
       }
       saveSettings();
-      if (key === "launchAtLogin") {
+      if (key === "autoUpdateCheck") {
+        scheduledUpdateCheck();
+      } else if (key === "launchAtLogin") {
         void applyLaunchAtLogin(state.settings.launchAtLogin);
       } else if (key === "showMenuBar") {
         api.setTrayEnabled(state.settings.showMenuBar).catch(() => {
@@ -1496,9 +1509,14 @@ async function bootstrap() {
 
   getVersion().then((v) => {
     state.appVersion = v;
-    if (state.settings.autoUpdateCheck) void checkForUpdates();
-    else render();
+    render();
   });
+  // Whatever an earlier check remembered shows at once; then a daily check.
+  api
+    .getUpdateStatus(state.settings.updateChannel)
+    .then(applyUpdateStatus)
+    .catch(() => {});
+  scheduledUpdateCheck();
   api.detectCli().then((v) => {
     state.cliVersion = v;
     render();

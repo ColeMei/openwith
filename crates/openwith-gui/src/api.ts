@@ -94,11 +94,18 @@ export interface HistoryEventDto {
   is_undo: boolean;
 }
 
-/** Where the running build stands against a release (release.rs `Status`). */
-export type ReleaseStatus =
-  | { state: "behind"; version: string }
-  | { state: "current" }
-  | { state: "unknown" };
+/** The shared answer of the release check (updates.rs). */
+export interface UpdateStatusDto {
+  running: string;
+  /** Newer version waiting on this channel, without the leading v. */
+  pending: string | null;
+  /** Unix seconds of the last check that got an answer. */
+  checked_at: number | null;
+  checking: boolean;
+  error: string | null;
+  /** A scheduled check just found `pending`: the once-a-day toast cue. */
+  announce: boolean;
+}
 
 export const api = {
   detectCli: () => invoke<string | null>("detect_cli"),
@@ -135,6 +142,10 @@ export const api = {
     invoke<void>("set_popover_pinned", { pinned }),
   setToggleShortcut: (accelerator: string) =>
     invoke<void>("set_toggle_shortcut", { accelerator }),
-  releaseStatus: (latest: string) =>
-    invoke<ReleaseStatus>("release_status", { latest }),
+  getUpdateStatus: (channel: string) =>
+    invoke<UpdateStatusDto>("get_update_status", { channel }),
+  /** `manual` always asks GitHub; otherwise only when a daily check is due
+   * and `enabled` ("Check automatically") is on. */
+  checkForUpdate: (channel: string, manual: boolean, enabled: boolean) =>
+    invoke<UpdateStatusDto>("check_for_update", { channel, manual, enabled }),
 };

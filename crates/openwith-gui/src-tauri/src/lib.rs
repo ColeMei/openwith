@@ -1,6 +1,7 @@
 mod commands;
 mod release;
 mod tray;
+mod updates;
 
 use std::sync::atomic::Ordering;
 
@@ -54,6 +55,8 @@ pub fn run() {
         .manage(commands::PopoverPinned::default())
         .manage(commands::MainWindowReady::default())
         .setup(|app| {
+            app.manage(updates::Updates::load(app.handle()));
+
             // The main window is configured hidden and is normally revealed by
             // the frontend's main_window_ready call. Nothing else can reveal
             // it, so if the webview never reaches that call the app would run
@@ -131,7 +134,8 @@ pub fn run() {
             commands::set_dock_icon_dark,
             commands::set_popover_pinned,
             commands::set_toggle_shortcut,
-            commands::release_status,
+            updates::get_update_status,
+            updates::check_for_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

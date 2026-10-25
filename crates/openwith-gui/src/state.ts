@@ -31,12 +31,10 @@ export interface ImportPending {
 }
 
 export interface UpdateStatus {
+  /** A manual check from this window is in flight. */
   checking: boolean;
-  latest: string | null; // newest version seen on GitHub, without the leading v
-  /** How the running build compares to `latest`, decided in Rust. */
-  status: import("./api").ReleaseStatus | null;
-  checkedAt: string | null; // human time of the last successful check
-  error: string | null;
+  /** The backend's shared answer; both windows hold the same one. */
+  info: import("./api").UpdateStatusDto | null;
 }
 
 /** User preferences, persisted to localStorage. Mirrors the prototype's
@@ -186,7 +184,7 @@ export const state: State = {
 
   appVersion: null,
   cliVersion: null,
-  updateStatus: { checking: false, latest: null, status: null, checkedAt: null, error: null },
+  updateStatus: { checking: false, info: null },
 };
 
 export function escapeHtml(input: string): string {

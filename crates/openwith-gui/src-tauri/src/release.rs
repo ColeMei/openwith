@@ -8,7 +8,7 @@
 
 use std::cmp::Ordering;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", content = "version", rename_all = "lowercase")]
@@ -144,6 +144,96 @@ pub fn status(running: &str, latest: &str) -> Status {
     }
 }
 
+// ---------- when to look, and what a look leaves behind ----------
+
+/// How long between scheduled checks. OpenWith sits in the menu bar for
+/// weeks, so "once per launch" would mean once per reboot on some machines;
+/// releases come a few times a month, so a day finds everything in time.
+pub const CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
+
+/// How soon a scheduled check retries after one that failed. Checks follow
+/// focus and popover opens, so without this an offline machine would ask
+/// the network on every click.
+pub const RETRY_SECS: u64 = 15 * 60;
+
+/// Whether a scheduled check may touch the network. `enabled` is the
+/// "Check automatically" setting and comes first: off means no request at
+/// all, not a request whose answer is ignored. A clock that went backwards
+/// (timezone change, manual set) reads as due rather than waiting it out.
+pub fn should_check(
+    enabled: bool,
+    last_success: Option<u64>,
+    last_attempt: Option<u64>,
+    now: u64,
+) -> bool {
+    let elapsed_at_least = |since: Option<u64>, secs: u64| match since {
+        None => true,
+        Some(t) => now < t || now - t >= secs,
+    };
+    enabled
+        && elapsed_at_least(last_success, CHECK_INTERVAL_SECS)
+        && elapsed_at_least(last_attempt, RETRY_SECS)
+}
+
+/// What a check's answer leaves behind: the newer version it found, or none.
+/// Both windows and every surface read this one value, so the Settings line,
+/// the toast and the popover can't disagree.
+///
+/// `Unknown` (offline, a captive portal, a release that won't parse) keeps
+/// what was there: failing to reach GitHub is not news that the update went
+/// away.
+pub fn remembered(status: &Status, previously: Option<String>) -> Option<String> {
+    match status {
+        Status::Behind(version) => Some(version.clone()),
+        Status::Current => None,
+        Status::Unknown => previously,
+    }
+}
+
+/// The newer version still waiting, or none. Re-compared against the running
+/// build rather than trusted as stored, so the first launch after an upgrade
+/// clears every notice at once instead of at the next check. Nothing marks a
+/// notice read or dismissed; it is derived, so it can't go stale.
+pub fn pending(remembered: Option<&str>, running: &str) -> Option<String> {
+    match status(running, remembered?) {
+        Status::Behind(version) => Some(version),
+        _ => None,
+    }
+}
+
+/// The subset of GitHub's release JSON the check reads.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Release {
+    pub tag_name: String,
+    #[serde(default)]
+    pub draft: bool,
+    #[serde(default)]
+    pub prerelease: bool,
+    #[serde(default)]
+    pub assets: Vec<Asset>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Asset {
+    pub name: String,
+}
+
+/// The release a channel is offered: the highest version among published
+/// ones (pre-releases only on Beta) that already carry their .dmg.
+///
+/// A release published from the web UI is public about a quarter of an hour
+/// before CI has built and attached its download; announcing it in that
+/// window would send people to a page with nothing to download.
+pub fn newest_offered(releases: &[Release], beta: bool) -> Option<&Release> {
+    releases
+        .iter()
+        .filter(|r| !r.draft && (beta || !r.prerelease))
+        .filter(|r| r.assets.iter().any(|a| a.name.ends_with(".dmg")))
+        .filter_map(|r| Version::parse(&r.tag_name).map(|v| (v, r)))
+        .max_by(|(a, _), (b, _)| a.cmp(b))
+        .map(|(_, r)| r)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +312,125 @@ mod tests {
     #[test]
     fn whitespace_is_trimmed() {
         assert_eq!(status(" 0.7.0\n", "v0.7.1 "), behind("0.7.1"));
+    }
+
+    const DAY: u64 = CHECK_INTERVAL_SECS;
+
+    #[test]
+    fn switched_off_never_checks() {
+        assert!(!should_check(false, None, None, 10 * DAY));
+    }
+
+    #[test]
+    fn checks_once_a_day() {
+        assert!(should_check(true, None, None, 10 * DAY));
+        assert!(!should_check(
+            true,
+            Some(10 * DAY),
+            Some(10 * DAY),
+            10 * DAY + DAY - 1
+        ));
+        assert!(should_check(true, Some(10 * DAY), Some(10 * DAY), 11 * DAY));
+    }
+
+    #[test]
+    fn a_failed_check_retries_after_a_while() {
+        let now = 10 * DAY;
+        assert!(!should_check(true, None, Some(now - 60), now));
+        assert!(should_check(true, None, Some(now - RETRY_SECS), now));
+    }
+
+    #[test]
+    fn clock_going_backwards_counts_as_due() {
+        assert!(should_check(true, Some(10 * DAY), Some(10 * DAY), 9 * DAY));
+    }
+
+    #[test]
+    fn unknown_keeps_what_was_remembered() {
+        let before = Some("0.7.1".to_string());
+        assert_eq!(remembered(&Status::Unknown, before.clone()), before);
+        assert_eq!(remembered(&Status::Current, before.clone()), None);
+        assert_eq!(
+            remembered(&behind("0.7.2"), before),
+            Some("0.7.2".to_string())
+        );
+    }
+
+    #[test]
+    fn pending_clears_once_the_running_build_catches_up() {
+        assert_eq!(pending(Some("0.7.1"), "0.7.0"), Some("0.7.1".to_string()));
+        assert_eq!(pending(Some("0.7.1"), "0.7.1"), None);
+        assert_eq!(pending(Some("0.7.1"), "0.7.2"), None);
+        assert_eq!(pending(None, "0.7.0"), None);
+        assert_eq!(pending(Some("garbage"), "0.7.0"), None);
+    }
+
+    fn rel(tag: &str, prerelease: bool, draft: bool, dmg: bool) -> Release {
+        let assets = if dmg {
+            vec![Asset {
+                name: format!("OpenWith_{}_aarch64.dmg", tag.trim_start_matches('v')),
+            }]
+        } else {
+            vec![]
+        };
+        Release {
+            tag_name: tag.to_string(),
+            draft,
+            prerelease,
+            assets,
+        }
+    }
+
+    fn offered(releases: &[Release], beta: bool) -> Option<&str> {
+        newest_offered(releases, beta).map(|r| r.tag_name.as_str())
+    }
+
+    #[test]
+    fn stable_skips_prereleases_and_drafts() {
+        let releases = [
+            rel("v0.8.0", false, true, true),
+            rel("v0.7.1-rc.1", true, false, true),
+            rel("v0.7.0", false, false, true),
+        ];
+        assert_eq!(offered(&releases, false), Some("v0.7.0"));
+        assert_eq!(offered(&releases, true), Some("v0.7.1-rc.1"));
+    }
+
+    #[test]
+    fn a_release_without_its_dmg_is_not_offered_yet() {
+        let releases = [
+            rel("v0.7.1", false, false, false),
+            rel("v0.7.0", false, false, true),
+        ];
+        assert_eq!(offered(&releases, false), Some("v0.7.0"));
+    }
+
+    #[test]
+    fn highest_version_wins_over_newest_published() {
+        // A backport published after a newer line must not read as "latest".
+        let releases = [
+            rel("v0.6.9", false, false, true),
+            rel("v0.7.0", false, false, true),
+        ];
+        assert_eq!(offered(&releases, false), Some("v0.7.0"));
+    }
+
+    #[test]
+    fn beta_offers_the_final_over_its_rcs() {
+        let releases = [
+            rel("v0.7.0", false, false, true),
+            rel("v0.7.0-rc.2", true, false, true),
+        ];
+        assert_eq!(offered(&releases, true), Some("v0.7.0"));
+    }
+
+    #[test]
+    fn unparseable_tags_are_skipped() {
+        let releases = [
+            rel("nightly", false, false, true),
+            rel("v0.7.0", false, false, true),
+        ];
+        assert_eq!(offered(&releases, false), Some("v0.7.0"));
+        assert_eq!(offered(&[], false), None);
     }
 }
