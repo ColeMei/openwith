@@ -1,3 +1,4 @@
+import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
@@ -283,9 +284,13 @@ root.addEventListener("click", (e) => {
     case "open-main":
       void api.showMainWindow();
       break;
-    case "update-to":
-      if (target.dataset.version) void api.openReleasePage(target.dataset.version);
+    case "update-to": {
+      // The confirm step and its progress live in the main window.
+      const version = target.dataset.version;
+      if (version)
+        void api.showMainWindow().then(() => emitTo("main", "start-update", version));
       break;
+    }
     case "quit":
       void api.quitApp();
       break;

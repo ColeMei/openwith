@@ -26,6 +26,17 @@ export interface ToastState {
   action?: { label: string; run: () => void };
 }
 
+/** The "Update to X…" confirm step: notes + Install, then progress. */
+export interface UpdateSheetState {
+  /** The version the notice named; only exactly this one is installed. */
+  version: string;
+  phase: "checking" | "ready" | "downloading" | "installing";
+  notes: string;
+  date: string | null;
+  downloaded: number;
+  total: number | null;
+}
+
 export interface ImportPending {
   path: string;
   fileName: string;
@@ -136,6 +147,7 @@ export interface State {
   selectedBundleId: string | null;
 
   sheet: SheetState | null;
+  updateSheet: UpdateSheetState | null;
   toast: ToastState | null;
   importPending: ImportPending | null;
   windowDragOver: boolean;
@@ -174,6 +186,7 @@ export const state: State = {
   selectedBundleId: null,
 
   sheet: null,
+  updateSheet: null,
   toast: null,
   importPending: null,
   windowDragOver: false,
