@@ -1,0 +1,303 @@
+name: Release
+
+# Builds the GUI on a macOS runner, signs its update archive, and attaches
+# both to the GitHub release for the tag. Every release, stable and rc, goes
+# through here; nothing is built on a Mac by hand any more.
+#
+# Triggers:
+#   - a v* tag push. Publishing a release in the web UI pushes its tag, so
+#     the release already exists (and is already public) and the assets are
+#     added to it; a tag pushed from git gets a new release instead: a
+#     pre-release for an rc, a draft for a stable tag, published by hand.
+#   - workflow_dispatch, to rebuild a tag, or to make an end-to-end test
+#     build whose updater reads `updater_endpoint` instead of
+#     releases/latest (see the pre-release section of CLAUDE.md).
+#
+# Two jobs, so the signing key never shares a runner with the build. `build`
+# runs npm install scripts and cargo build scripts, i.e. third-party code,
+# and holds no secrets. `sign` runs in the `release` environment, which needs
+# the maintainer's approval and is the only holder of the key; it receives
+# finished artifacts and runs nothing but the signer and minisign. The key
+# decides what every installed OpenWith accepts as an update.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, e.g. v0.7.0"
+        required: true
+      updater_endpoint:
+        description: "Test builds only: the latest.json URL this build checks instead of releases/latest. Must be a release asset of this repo; the assets get an _update-test suffix."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # The signer is pinned here rather than taken from package-lock.json: the
+  # sign job installs nothing else, and `--app-version` (which binds the
+  # signature to the version; see requireSignedVersion) needs >= 2.12.
+  TAURI_CLI_VERSION: "2.12.4"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      ENDPOINT: ${{ inputs.updater_endpoint }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      suffix: ${{ steps.version.outputs.suffix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/openwith-gui/package-lock.json
+
+      # A stable tag must match the workspace version: Homebrew builds the CLI
+      # from this tag's source tarball, which has to report it. An rc is cut in
+      # the web UI from a PR branch with no bump commit, so its version is
+      # stamped from the tag here; the app compares its own version against
+      # releases, and an rc reporting the last stable version would be offered
+      # that release as an "update".
+      - name: Version from the tag
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$TAG' is not a release tag"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          workspace_version() {
+            cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.name == "openwith-gui") | .version'
+          }
+          if [[ "$VERSION" == *-* ]]; then
+            python3 - "$VERSION" <<'PY'
+          import pathlib, re, sys
+          path = pathlib.Path("Cargo.toml")
+          text, n = re.subn(
+              r'(\[workspace\.package\]\n(?:[^\[\n][^\n]*\n)*?version = ")[^"]*(")',
+              lambda m: m.group(1) + sys.argv[1] + m.group(2),
+              path.read_text(),
+              count=1,
+          )
+          if n != 1:
+              sys.exit("::error::no version in [workspace.package] to stamp")
+          path.write_text(text)
+          PY
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$(workspace_version)" != "$VERSION" ]]; then
+            echo "::error::tag $TAG does not match workspace version $(workspace_version)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ -n "$ENDPOINT" ]]; then
+            echo "suffix=_update-test" >> "$GITHUB_OUTPUT"
+          else
+            echo "suffix=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The placeholder would ship an app that can never install an update:
+      # every copy of this version would be stuck on the release page.
+      - name: Check the update key is set
+        run: |
+          set -euo pipefail
+          PUBKEY="$(jq -r '.plugins.updater.pubkey // ""' crates/openwith-gui/src-tauri/tauri.conf.json)"
+          if [[ -z "$PUBKEY" || "$PUBKEY" == __* ]]; then
+            echo "::error::plugins.updater.pubkey in tauri.conf.json is still the placeholder"
+            exit 1
+          fi
+
+      - name: Install frontend deps
+        working-directory: crates/openwith-gui
+        run: npm ci
+
+      - name: Build the app and dmg
+        working-directory: crates/openwith-gui
+        run: |
+          set -euo pipefail
+          args=(--bundles "app,dmg")
+          if [[ -n "$ENDPOINT" ]]; then
+            if [[ ! "$ENDPOINT" =~ ^https://github\.com/ColeMei/openwith/releases/download/v[0-9A-Za-z.-]+/latest\.json$ ]]; then
+              echo "::error::updater_endpoint must be a latest.json asset of a release in this repo"
+              exit 1
+            fi
+            args+=(--config "{\"plugins\":{\"updater\":{\"endpoints\":[\"$ENDPOINT\"]}}}")
+          fi
+          npm run tauri build -- "${args[@]}"
+
+      # Checked on what people download, the app inside the mounted dmg.
+      - name: Verify the packaged app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          DMG="target/release/bundle/dmg/OpenWith_${VERSION}_aarch64.dmg"
+          hdiutil attach "$DMG" -nobrowse -readonly -mountpoint /tmp/verify
+          trap 'hdiutil detach /tmp/verify -quiet || true' EXIT
+          APP=/tmp/verify/OpenWith.app
+          test "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")" = "$VERSION"
+          # The key and the endpoint are compiled into the binary; make sure
+          # the ones this release is signed for and served from are in there.
+          EXE="$APP/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")"
+          PUBKEY="$(jq -r '.plugins.updater.pubkey' crates/openwith-gui/src-tauri/tauri.conf.json)"
+          grep -aqF "$PUBKEY" "$EXE"
+          grep -aqF "${ENDPOINT:-https://github.com/ColeMei/openwith/releases/latest/download/latest.json}" "$EXE"
+
+      # The archive the updater downloads. It strips the first path component
+      # and moves what is left into place, so the archive must hold exactly
+      # one top-level directory, OpenWith.app/. COPYFILE_DISABLE and
+      # --no-mac-metadata keep macOS tar from adding ._ AppleDouble entries.
+      - name: Make the update archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SUFFIX: ${{ steps.version.outputs.suffix }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ARCHIVE="dist/OpenWith_${VERSION}_aarch64${SUFFIX}.app.tar.gz"
+          COPYFILE_DISABLE=1 tar --no-mac-metadata -czf "$ARCHIVE" \
+            -C target/release/bundle/macos OpenWith.app
+          if tar -tzf "$ARCHIVE" | grep -qv '^OpenWith\.app/'; then
+            echo "::error::$ARCHIVE has entries outside OpenWith.app/"
+            exit 1
+          fi
+          cp "target/release/bundle/dmg/OpenWith_${VERSION}_aarch64.dmg" \
+            "dist/OpenWith_${VERSION}_aarch64${SUFFIX}.dmg"
+          ls -l dist
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
+      PRERELEASE: ${{ needs.build.outputs.prerelease }}
+      SUFFIX: ${{ needs.build.outputs.suffix }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      published-stable: ${{ steps.publish.outputs.published-stable }}
+    steps:
+      # Only for tauri.conf.json (the public key to verify against) and the
+      # annotated tag's message.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Install the signer and minisign
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq minisign
+          npm install --prefix "$RUNNER_TEMP/signer" --no-save --ignore-scripts \
+            --no-audit --no-fund "@tauri-apps/cli@$TAURI_CLI_VERSION"
+
+      # The key is only in this step's environment, and goes to the signer
+      # through it; it is never written to disk or printed.
+      - name: Sign the update archive
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set on the release environment"
+            exit 1
+          fi
+          "$RUNNER_TEMP/signer/node_modules/.bin/tauri" signer sign \
+            --app-version "$VERSION" "dist/OpenWith_${VERSION}_aarch64${SUFFIX}.app.tar.gz" >/dev/null
+
+      # Against the public key the app ships, not the private key that made
+      # the signature: a secret that doesn't match tauri.conf.json would sign
+      # updates that every installed OpenWith refuses. The trusted comment
+      # must name this version, or requireSignedVersion refuses it too.
+      - name: Verify the signature
+        run: |
+          set -euo pipefail
+          ARCHIVE="dist/OpenWith_${VERSION}_aarch64${SUFFIX}.app.tar.gz"
+          jq -r '.plugins.updater.pubkey' crates/openwith-gui/src-tauri/tauri.conf.json \
+            | base64 -d > "$RUNNER_TEMP/updater.pub"
+          base64 -d < "$ARCHIVE.sig" > "$RUNNER_TEMP/archive.minisig"
+          minisign -V -p "$RUNNER_TEMP/updater.pub" -m "$ARCHIVE" -x "$RUNNER_TEMP/archive.minisig" \
+            | tee "$RUNNER_TEMP/verify.txt"
+          trusted="$(sed -n 's/^Trusted comment: //p' "$RUNNER_TEMP/verify.txt")"
+          if [[ "$trusted" != *$'\t'"version:$VERSION" ]]; then
+            echo "::error::the signature is not bound to version $VERSION"
+            exit 1
+          fi
+
+      - name: Publish the assets
+        id: publish
+        run: |
+          set -euo pipefail
+          assets=(dist/*.dmg dist/*.app.tar.gz dist/*.app.tar.gz.sig)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          elif [[ -n "$SUFFIX" ]]; then
+            echo "::error::a test build is attached to an existing release; publish $TAG first"
+            exit 1
+          else
+            # checkout may leave a lightweight ref; fetch the annotated tag itself.
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            git tag -l --format='%(contents)' "$TAG" > "$RUNNER_TEMP/notes.md"
+            if [[ "$PRERELEASE" == true ]]; then
+              gh release create "$TAG" --prerelease --title "$TAG" \
+                --notes-file "$RUNNER_TEMP/notes.md" "${assets[@]}"
+            else
+              # A stable release goes out as a draft: review the notes, then
+              # publish, which writes latest.json and bumps the tap.
+              gh release create "$TAG" --draft --title "$TAG" \
+                --notes-file "$RUNNER_TEMP/notes.md" "${assets[@]}"
+            fi
+          fi
+          state="$(gh release view "$TAG" --json isDraft,isPrerelease \
+            --jq 'if (.isDraft or .isPrerelease) then "no" else "yes" end')"
+          if [[ "$state" == yes && -z "$SUFFIX" ]]; then
+            echo "published-stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published-stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### OpenWith $VERSION${SUFFIX:+ (update test build)}"
+            echo
+            echo '```'
+            (cd dist && sha256sum ./*)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
