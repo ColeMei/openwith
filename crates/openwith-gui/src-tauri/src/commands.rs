@@ -10,7 +10,7 @@ use openwith_core::history::{self, HistoryEvent};
 use openwith_core::types::AppInfo;
 use openwith_core::{config, launchservices, listing, scanner, uti};
 
-use crate::tray;
+use crate::{release, tray};
 
 /// History writes are best-effort — never fail the change that triggered them.
 fn record_history(event: HistoryEvent) {
@@ -39,6 +39,12 @@ pub struct MainWindowReady(pub AtomicBool);
 /// window before the webview can report its own.
 pub const BG_LIGHT: tauri::window::Color = tauri::window::Color(0xfa, 0xf8, 0xf5, 0xff);
 pub const BG_DARK: tauri::window::Color = tauri::window::Color(0x20, 0x1d, 0x1b, 0xff);
+
+/// Where the running build stands against a published release tag.
+#[tauri::command]
+pub fn release_status(app: AppHandle, latest: String) -> release::Status {
+    release::status(&app.package_info().version.to_string(), &latest)
+}
 
 #[tauri::command]
 pub fn set_popover_pinned(pinned: bool, state: State<'_, PopoverPinned>) {

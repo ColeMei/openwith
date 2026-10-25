@@ -94,6 +94,12 @@ export interface HistoryEventDto {
   is_undo: boolean;
 }
 
+/** Where the running build stands against a release (release.rs `Status`). */
+export type ReleaseStatus =
+  | { state: "behind"; version: string }
+  | { state: "current" }
+  | { state: "unknown" };
+
 export const api = {
   detectCli: () => invoke<string | null>("detect_cli"),
   relaunchFinder: () => invoke<void>("relaunch_finder"),
@@ -129,4 +135,6 @@ export const api = {
     invoke<void>("set_popover_pinned", { pinned }),
   setToggleShortcut: (accelerator: string) =>
     invoke<void>("set_toggle_shortcut", { accelerator }),
+  releaseStatus: (latest: string) =>
+    invoke<ReleaseStatus>("release_status", { latest }),
 };

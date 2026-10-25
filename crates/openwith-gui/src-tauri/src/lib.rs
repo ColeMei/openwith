@@ -1,4 +1,5 @@
 mod commands;
+mod release;
 mod tray;
 
 use std::sync::atomic::Ordering;
@@ -130,6 +131,7 @@ pub fn run() {
             commands::set_dock_icon_dark,
             commands::set_popover_pinned,
             commands::set_toggle_shortcut,
+            commands::release_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

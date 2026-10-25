@@ -33,6 +33,8 @@ export interface ImportPending {
 export interface UpdateStatus {
   checking: boolean;
   latest: string | null; // newest version seen on GitHub, without the leading v
+  /** How the running build compares to `latest`, decided in Rust. */
+  status: import("./api").ReleaseStatus | null;
   checkedAt: string | null; // human time of the last successful check
   error: string | null;
 }
@@ -184,7 +186,7 @@ export const state: State = {
 
   appVersion: null,
   cliVersion: null,
-  updateStatus: { checking: false, latest: null, checkedAt: null, error: null },
+  updateStatus: { checking: false, latest: null, status: null, checkedAt: null, error: null },
 };
 
 export function escapeHtml(input: string): string {

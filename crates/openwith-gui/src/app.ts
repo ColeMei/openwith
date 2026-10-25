@@ -409,11 +409,12 @@ function segmented(
 
 function updateStatusLine(): string {
   const u = state.updateStatus;
-  const v = state.appVersion;
   if (u.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
-  if (u.latest && v && u.latest !== v)
-    return `<span class="desc warn-text">Update ${escapeHtml(u.latest)} available — <span class="mono">brew upgrade --cask openwith-gui</span></span>`;
-  if (u.latest && u.checkedAt)
+  if (u.status?.state === "behind")
+    return `<span class="desc warn-text">Update ${escapeHtml(u.status.version)} available — <span class="mono">brew upgrade --cask openwith-gui</span></span>`;
+  if (u.status?.state === "unknown" && u.latest)
+    return `<span class="desc warn-text">Couldn't compare with release ${escapeHtml(u.latest)}</span>`;
+  if (u.status?.state === "current" && u.checkedAt)
     return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(u.checkedAt)}</span>`;
   return `<span class="desc">Updates ship via Homebrew</span>`;
 }
@@ -1090,6 +1091,9 @@ async function checkForUpdates() {
     );
     if (!candidate) throw new Error("no releases found");
     state.updateStatus.latest = candidate.tag_name.replace(/^v/, "");
+    // Numeric, rc-aware comparison (release.rs): a build ahead of the newest
+    // release on its channel is current, not offered a downgrade.
+    state.updateStatus.status = await api.releaseStatus(candidate.tag_name);
     // Seconds matter: repeat "Check Now" clicks within the same minute must
     // still visibly change something.
     state.updateStatus.checkedAt = new Date().toLocaleTimeString([], {
