@@ -55,7 +55,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "__TAURI_UPDATER_PUBKEY__",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxNjA0NzVFMEFCMTA2MzIKUldReUJyRUtYa2Rnc1hpYThxZjdIQWJlYW5wKy9PRkx1WWdzRS9vZ0haYmVQUEY2eW1SQmROYjQK",
       "endpoints": [
         "https://github.com/ColeMei/openwith/releases/latest/download/latest.json"
       ],
