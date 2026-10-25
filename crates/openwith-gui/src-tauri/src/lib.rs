@@ -1,5 +1,7 @@
 mod commands;
+mod release;
 mod tray;
+mod updates;
 
 use std::sync::atomic::Ordering;
 
@@ -22,7 +24,21 @@ pub fn run() {
     let window_state_flags =
         StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN;
 
-    tauri::Builder::default()
+    let context = tauri::generate_context!();
+
+    // The updater only installs what verifies against the public key in
+    // tauri.conf.json. A build still carrying the placeholder never
+    // registers it, so nothing can start an install that would be refused;
+    // "Update to X…" opens the release page instead.
+    let updater_ready = updates::updater_configured(context.config());
+    let builder = tauri::Builder::default();
+    let builder = if updater_ready {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
+
+    builder
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state_flags)
@@ -34,6 +50,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_positioner::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             None,
@@ -52,7 +69,10 @@ pub fn run() {
         .manage(commands::AppsCache::default())
         .manage(commands::PopoverPinned::default())
         .manage(commands::MainWindowReady::default())
+        .manage(updates::UpdaterReady(updater_ready))
         .setup(|app| {
+            app.manage(updates::Updates::load(app.handle()));
+
             // The main window is configured hidden and is normally revealed by
             // the frontend's main_window_ready call. Nothing else can reveal
             // it, so if the webview never reaches that call the app would run
@@ -130,8 +150,12 @@ pub fn run() {
             commands::set_dock_icon_dark,
             commands::set_popover_pinned,
             commands::set_toggle_shortcut,
+            updates::get_update_status,
+            updates::check_for_update,
+            updates::open_release_page,
+            updates::updater_available,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             // Dock icon clicked with no visible window: reopen main.

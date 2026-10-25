@@ -76,7 +76,15 @@ crates/
     src-tauri/src/
       commands.rs       -- #[tauri::command] wrappers over openwith-core + apps cache
       tray.rs           -- tray icon lifecycle + popover positioning (plugin-positioner)
-      lib.rs            -- tauri Builder, plugins (dialog, opener, positioner, autostart, global-shortcut — default ⌥⌘O, user-configurable)
+      release.rs        -- pure, unit-tested release arithmetic: version compare, daily-check gate, pending/remembered, release-page URL
+      updates.rs        -- the release check: GitHub fetch, shared answer in update.json, `update-status` event, updater gating
+      lib.rs            -- tauri Builder, plugins (dialog, opener, positioner, autostart, process, updater only with a real key, global-shortcut — default ⌥⌘O, user-configurable)
+.github/workflows/
+  ci.yml                -- PRs + main: fmt/check/clippy/test on macOS, frontend build
+  release.yml           -- v* tag (web-UI publish or git push): build on macOS, sign in the `release` environment, attach assets
+  latest.yml            -- release published/edited: write + attach latest.json (stable only)
+  tap.yml               -- release published: bump cask + formula in ColeMei/homebrew-openwith
+  release-check.yml     -- manual: the signing secret matches the shipped public key
 ```
 
 ### Key patterns
@@ -98,6 +106,9 @@ crates/
 - The GUI is two windows off one Vite bundle: `main` and a hidden transparent `menubar` popover (requires `macOSPrivateApi: true`). The popover hides on blur and is toggled by the tray icon or a configurable global shortcut (default ⌥⌘O; `set_toggle_shortcut` swaps the registration at runtime, the saved accelerator is re-applied at bootstrap). A **Pin** button suspends hide-on-blur for one showing (backend `PopoverPinned` AtomicBool, reset on every toggle) so a file can be dragged in from Finder — without it the click into Finder blurs and hides the panel. Focus events are unreliable for the transparent panel, so the backend emits `popover-shown` on every open and the popover refreshes from that, not just from focus. A backend `AppsCache` (refreshed by `get_snapshot`) keeps popover lookups instant.
 - App icons come from the 2026-07 logo renders in `artifacts/` (`logo-mono-glyph.png`, `logo-icon-dark.png`, `logo-icon-light.png` — AI renders with **no alpha**, so masking is scripted, not manual): light → 1024 master → `tauri icon` set; dark → `icons/icon-dark.png`; mono glyph → `icons/tray-template.png` (64×44 black+alpha template, glyph ≈30px tall → ~22 × 12pt on screen). The Dock icon follows the app's *resolved* appearance at runtime — `set_dock_icon_dark` swaps `NSApplication.applicationIconImage` between `icon.png`/`icon-dark.png` (macOS only re-renders bundle icons for the system appearance), invoked from `theme.ts` on every theme change. `icon.icns` is **hand-built**: the ≤64px slots use a legibility variant (header dots inpainted away, no shadow, larger glyph), so rerunning `tauri icon` clobbers it. All of these regenerate with `uv run scripts/gen-icons.py` (run it *after* any `tauri icon` invocation; it prints the `tauri icon` command for the PNG set).
 - GUI lists have exactly **one** highlight, driven by the pointer and the arrow keys alike: hovering a row *moves* the keyboard cursor (`state.extCursor` / `state.sheetCursor`, popover `state.cursor`) rather than painting a second, competing highlight. Hover updates the `.active` class imperatively — re-rendering 369 rows per row crossed would be visibly janky and fight `scrollIntoView`. While the arrows are driving, a `kbd-nav` class on `root` mutes hover; it clears on the next mousemove **whose coordinates actually changed**, because scrolling under a stationary pointer makes WebKit synthesize a same-position mousemove, and honouring that let hover re-seat the cursor on whatever row had slid underneath (three keypresses walked eleven rows). The Apps tab is the deliberate exception — it keeps click-to-select, since hovering would swap the detail pane out from under the pointer.
+- **Updates: the app's check is the news, the updater is only the installer** (modelled on Pane v0.7.3). `updates.rs` asks the GitHub releases API, at launch, on main-window focus and on popover open, at most once a day (`release::should_check`; a failed check retries after 15 min), and never with "Check automatically" off: off means no request, not an ignored answer. Check Now and channel switches always ask. A release isn't offered until its .dmg is attached, because a web-UI release is public for the ~15 min CI takes to build it. The answer (the newer version on the user's channel) is remembered in `update.json` in app data and broadcast to both windows as `update-status`, so Settings, the toast and the popover badge can't disagree. It is re-compared against the running build on every read, so an upgrade clears every notice at once; there is no dismissed flag. `Unknown` (offline) keeps the remembered answer. The toast fires only on a scheduled check's answer (`announce`), so it repeats daily while behind and never elbows out a toast already on screen.
+- **Version comparison lives in Rust** (`release.rs`, with unit tests), not TS: `v`-tolerant, component by component (`0.10 > 0.9`, `0.7 == 0.7.0`), a newer local build is current, unparseable is unknown. Unlike Pane, a pre-release ranks below its release (SemVer), so someone on `0.7.0-rc.1` still hears about `0.7.0`. The old exact-string compare offered a Stable-channel rc the older release it was ahead of.
+- **"Update to X…" installs exactly X or opens X's release page.** The confirm sheet (main window; the popover badge hands over via `start-update`) runs `check()` against `releases/latest/download/latest.json` and installs only if the manifest offers exactly the version the notice named. Anything else (no real key in this build, the manifest offering another version, which is how a Beta rc lands here since `latest.json` only carries stable releases, a failed check, download or signature) closes the sheet and opens the release page. Every update is verified against `plugins.updater.pubkey`, and `requireSignedVersion` makes the signature's trusted comment name the version, so a tampered manifest can't pair a new version number with an older signed build. A build whose pubkey is still `__TAURI_UPDATER_PUBKEY__` never registers the updater plugin (`updater_available` → false). Release notes render as escaped plain text: the frontend is innerHTML with IPC access. Replacing the bundle drops a custom Finder icon (`Icon\r`) on OpenWith.app, the same as a reinstall (#25); the sheet says so.
 - GUI settings live in localStorage (`openwith.settings`). The Settings pane mirrors the design prototype's full layout; controls whose feature ships in a later 0.5.x phase (launch at login, menu bar) render disabled with an "arrives in v0.5.1" note rather than as silently-dead toggles.
 - GUI visual source of truth is the claude.design prototype "OpenWith GUI Explorations" (project 14225854-984c-4e5c-8d2b-8c9ce38a1624), variants 1c (light) / 2a (dark): glyph tab icons (⌸ ⊞ ⤴ ⇅ — never emoji), 2-char initial chips (20px rows / 26px app list / 52px detail), fixed mid accent oklch(0.62 0.14 45) for tab underline + toggles, inverted toast. Check UI changes against it before shipping.
 
@@ -135,8 +146,10 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
 
 ### Release process
 
-1. Ensure all changes are committed and pushed.
-2. Update the workspace version in `Cargo.toml` if not already done.
+Releases are built, signed and published by CI; nothing is built on a Mac by hand. Publishing a release in the GitHub web UI pushes its tag, and the tag push is what triggers `release.yml`.
+
+1. Ensure all changes are merged to `main`.
+2. Bump the workspace version in `Cargo.toml` (and `package.json`) on `main` (`chore: bump version to vX.Y.Z`). `release.yml` refuses a stable tag that doesn't match it, because Homebrew builds the CLI from the tag's source tarball.
 3. Run validation:
    ```bash
    cargo fmt --check
@@ -145,38 +158,35 @@ When releasing, update `version` in the root `Cargo.toml` (`workspace.package`) 
    cargo test
    (cd crates/openwith-gui && npm run build)
    ```
-   If the release touches the GUI, also run the **GUI smoke-test checklist** below against a real `npm run tauri build` bundle — mandatory before tagging.
-4. Create a git tag: `git tag vX.Y.Z`
-5. Push the tag: `git push origin vX.Y.Z`
-6. Create GitHub release with `gh release create` using the appropriate template below.
-7. Build the GUI bundle and attach it to the release:
-   ```bash
-   (cd crates/openwith-gui && npm run tauri build)
-   gh release upload vX.Y.Z target/release/bundle/dmg/OpenWith_X.Y.Z_aarch64.dmg
-   ```
-   The app is unsigned (no Apple Developer ID yet) — first launch needs `xattr -dr com.apple.quarantine /Applications/OpenWith.app` or right-click → Open.
-8. Bump the Homebrew formula in `ColeMei/homebrew-openwith` (url + sha256 of the new tag tarball). Since the workspace conversion, the formula's `install` block must use `system "cargo", "install", *std_cargo_args(path: "crates/openwith-cli")` (the repo root is a virtual workspace with no installable package at `.`; the path must go through the helper's `path:` keyword — appending a separate `--path` flag duplicates the helper's built-in `--path=.` and cargo rejects it).
-9. Update the `openwith-gui` cask in `ColeMei/homebrew-openwith` (`Casks/openwith-gui.rb`, url + sha256 of the .dmg release asset) with the quarantine caveat, so `brew install --cask ColeMei/openwith/openwith-gui` works for the GUI. (The cask was named `openwith` before v0.5.2.)
+   If the release touches the GUI, the **GUI smoke-test checklist** below is mandatory before the final tag, run against a CI-built `.app` (an rc of the same commit) or a local `npm run tauri build`.
+4. Publish the release in the web UI: new tag `vX.Y.Z` on `main`, title `vX.Y.Z`, notes from the template below. (Or push a tag from git: `release.yml` then creates the release as a **draft**; review the notes and publish it.)
+5. Approve the `release` environment deployment when Actions asks. `release.yml`'s `build` job (macOS, no secrets) builds the .app and .dmg, checks the version, key and endpoint inside the dmg, and packs `OpenWith_X.Y.Z_aarch64.app.tar.gz`. The `sign` job (the only job holding the key) signs that archive bound to the version, verifies the signature against the pubkey in `tauri.conf.json`, and attaches the dmg, archive and `.sig`.
+6. Once the assets are attached to the published release, `latest.yml` writes `latest.json` from the published notes (dropping the Install section) and attaches it, and `tap.yml` bumps `Casks/openwith-gui.rb` and `Formula/openwith.rb` in `ColeMei/homebrew-openwith`. Editing the notes later rewrites `latest.json`. Re-run either by hand (`workflow_dispatch` with the tag) if a run failed. The formula's `install` block must keep `system "cargo", "install", *std_cargo_args(path: "crates/openwith-cli")` (the repo root is a virtual workspace; a separate `--path` flag duplicates the helper's built-in `--path=.` and cargo rejects it).
+7. Check `https://github.com/ColeMei/openwith/releases/latest/download/latest.json` serves the new version, and the tap commit landed.
 
+Between publishing and step 6 (~15 min plus the approval) the release has no assets. The app doesn't announce a release until its .dmg is attached, and an "Update to X…" pressed then falls back to the release page.
+
+**Update signing key.** Generated once by the maintainer (`npx @tauri-apps/cli signer generate`), private half and password kept offline and as the `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets of the `release` environment (required reviewer: the maintainer, self-review allowed; deployment refs: tags `v*` and branch `main`, since the key check and test builds are dispatched from `main`). Never generate, print or handle it in a session. The public half is `plugins.updater.pubkey` in `tauri.conf.json`. Run **Release setup check** (`release-check.yml`) after setting or rotating it. Losing the key means no installed copy can update in place again (manual reinstall); rotating it means every copy before the rotation must reinstall by hand.
 
 ### Pre-releases
 
 Cut a pre-release when a fix needs the reporter's confirmation before it ships, typically when the bug only occurs on their setup (e.g. a macOS beta) and we can only reproduce it synthetically. v0.6.4 shipped as "fixed" for a bug that came back on the reporter's machine; a pre-release avoids another round of that.
 
-1. Keep the fix in its PR; don't merge it yet.
-2. Branch off the PR head (`git switch -c rc/vX.Y.Z-rc.N`) and bump the workspace version and `package.json` to `X.Y.Z-rc.N` there. The app's update check compares version strings for equality, so the build must report its own rc version or it shows a bogus "update available". This branch stays local: only the tag is pushed, so the PR never carries the bump, and the branch can be deleted once the tag is up (the tag keeps the commit).
-3. Run the same validation as a release. For the smoke test, the checklist items that exercise the change are enough for an rc (run them against the built .app); the **full** checklist is still mandatory before the final tag.
-4. `npm run tauri build`, then tag and publish:
-   ```bash
-   git tag vX.Y.Z-rc.N && git push origin vX.Y.Z-rc.N
-   gh release create vX.Y.Z-rc.N --prerelease --title vX.Y.Z-rc.N --notes "..." \
-     target/release/bundle/dmg/OpenWith_X.Y.Z-rc.N_aarch64.dmg
-   ```
-   Check `gh api repos/ColeMei/openwith/releases/latest` still returns the last stable tag.
-5. **Don't** bump the Homebrew formula or cask; Homebrew stays on stable. Point the reporter at the release page in the issue.
+1. Keep the fix in its PR; don't merge it yet. Don't bump any version: CI stamps an rc's version from its tag, so the build reports `X.Y.Z-rc.N` (the update check needs that, or an rc reporting the last stable version would be offered that release).
+2. Run the same validation as a release.
+3. Publish a release in the web UI: new tag `vX.Y.Z-rc.N` targeting **the PR branch**, title `vX.Y.Z-rc.N`, notes from the template below, **"Set as a pre-release"** ticked. Approve the `release` deployment. CI attaches the signed dmg and archive; `latest.yml` and `tap.yml` skip pre-releases, so `releases/latest` and Homebrew stay on stable. Check `gh api repos/ColeMei/openwith/releases/latest` still returns the last stable tag.
+4. For the smoke test, the checklist items that exercise the change are enough for an rc (run them against the CI-built .app); the **full** checklist is still mandatory before the final tag.
+5. Point the reporter at the release page in the issue.
 6. Once confirmed, merge the PR and cut `vX.Y.Z` from `main` with the normal release process. Leave the pre-release up.
 
-Users on the GUI's **Beta** update channel see pre-releases (Settings → Updates); Stable users don't. The update notice suggests `brew upgrade`, which doesn't apply to an rc.
+Users on the GUI's **Beta** update channel see pre-releases (Settings → Updates); Stable users don't. "Update to X…" on an rc opens its release page: the in-place installer only offers what `latest.json` carries, which is stable releases.
+
+**End-to-end updater test** (two signed builds; needs a Mac). Any change to the updater, the signing or the manifest is verified this way before the stable tag:
+
+1. Publish `vX.Y.Z-rc.1` (as above). Then run `release.yml` by hand with `tag = vX.Y.Z-rc.1` and `updater_endpoint = https://github.com/ColeMei/openwith/releases/download/vX.Y.Z-rc.2/latest.json` (the URL is predictable before rc.2 exists). That attaches `OpenWith_X.Y.Z-rc.1_aarch64_update-test.dmg`, a build that reads rc.2's manifest instead of `releases/latest`.
+2. Publish `vX.Y.Z-rc.2`, then run `latest.yml` by hand with `tag = vX.Y.Z-rc.2` and **include_prerelease** ticked.
+3. On the Mac: install the rc.1 `_update-test` dmg, set the channel to Beta, Check Now. The notice names rc.2; Update to rc.2… shows the sheet and its notes; Install downloads, replaces and relaunches; Settings then reports rc.2 and the notice is gone. Check the app still opens without a quarantine prompt.
+4. Negative paths, each starting again from the rc.1 test build: delete rc.2's `latest.json` asset → the release page opens. Re-upload it with one character of `signature` changed → the install is refused and the release page opens. A normal (non-test) rc build → the release page opens. Stable channel → no notice for rc.2. Rewrite `latest.json` back to the real one afterwards (`latest.yml`, include_prerelease).
 
 **Pre-release template:**
 
@@ -187,7 +197,7 @@ Test build for <issue>. Not on Homebrew.
 - GUI: <fix>
 
 **Install**
-Download `OpenWith_X.Y.Z-rc.N_aarch64.dmg` below and drag OpenWith into Applications. The app is unsigned, so run `xattr -dr com.apple.quarantine /Applications/OpenWith.app` before first launch (or right-click → Open).
+Download `OpenWith_X.Y.Z-rc.N_aarch64.dmg` below and drag OpenWith into Applications. The app is unsigned, so run `xattr -dr com.apple.quarantine /Applications/OpenWith.app` before first launch.
 ```
 
 ### GUI smoke-test checklist
@@ -215,7 +225,13 @@ Run against the built .app (not just `tauri dev`) before tagging any release wit
 - [ ] Menu-bar icon sits at roughly the same visual weight as neighbouring status items (it renders ~22 x 12pt; `tray-icon` fixes the canvas at 18pt tall and derives width from the canvas aspect)
 - [ ] History panel scrolls at 50 entries and updates after changes
 - [ ] History window: default shows only the last 7 days in both the Profiles panel and the popover; "Show all" reveals older rows and toggles back; switching the Settings segment (1 week/1 month/All) refetches both surfaces; the popover follows a change made in the main window without a relaunch
-- [ ] Check Now (updates) reports a sensible result on both channels
+- [ ] Check Now (updates) reports a sensible result on both channels; a newer local build (an rc on Stable) reads "Up to date", not an older "update"
+- [ ] "Check automatically" off: no request to api.github.com at launch, on focus or on popover open (watch with Little Snitch or `nettop`); Check Now still works
+- [ ] Behind a release (run the previous version): the toast with "Update…", the popover's "Update to X…" badge and Settings' "Update to X…" all appear; the toast comes back the next day, not on every launch
+- [ ] Update to X… → sheet with version, date and plain-text notes → Install → progress → relaunch on X; Settings reports X and every notice is gone. A custom Finder icon on OpenWith.app is reset (expected, #25)
+- [ ] Update to X… from the popover badge opens the main window's sheet
+- [ ] Fallback: with `latest.json` unreachable (offline after the notice, or a build with the placeholder key), Update to X… opens X's release page with a toast instead of failing silently
+- [ ] Beta channel on an rc: the notice names the newer rc, and Update to it… opens its release page
 - [ ] README screenshots still match the shipped UI — recapture if it changed. GUI shots (`artifacts/gui-*.png`) come from the design prototype; TUI shots (`artifacts/tui-*.png`) are regenerated with `./scripts/capture-tui.sh`
 
 ### Release templates

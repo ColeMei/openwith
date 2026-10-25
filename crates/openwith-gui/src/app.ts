@@ -1,5 +1,8 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
@@ -11,7 +14,12 @@ import {
   save as saveDialog,
 } from "@tauri-apps/plugin-dialog";
 
-import { api, type AppDto, type SetResultDto } from "./api";
+import {
+  api,
+  type AppDto,
+  type SetResultDto,
+  type UpdateStatusDto,
+} from "./api";
 import { avatarColor, initials } from "./colors";
 import {
   appStats,
@@ -407,15 +415,32 @@ function segmented(
   return `<span class="segmented">${buttons}</span>`;
 }
 
+/** "14:03:27" today, "12 Oct, 14:03" before. Seconds matter: repeat "Check
+ * Now" clicks within the same minute must still visibly change something. */
+function checkedAtLabel(unixSeconds: number): string {
+  const at = new Date(unixSeconds * 1000);
+  if (at.toDateString() === new Date().toDateString())
+    return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return at.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 function updateStatusLine(): string {
-  const u = state.updateStatus;
-  const v = state.appVersion;
-  if (u.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
-  if (u.latest && v && u.latest !== v)
-    return `<span class="desc warn-text">Update ${escapeHtml(u.latest)} available — <span class="mono">brew upgrade --cask openwith-gui</span></span>`;
-  if (u.latest && u.checkedAt)
-    return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(u.checkedAt)}</span>`;
-  return `<span class="desc">Updates ship via Homebrew</span>`;
+  const u = state.updateStatus.info;
+  if (u?.pending)
+    return `<span class="desc warn-text">OpenWith ${escapeHtml(u.pending)} is available</span>`;
+  if (u?.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
+  if (u?.checked_at)
+    return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(checkedAtLabel(u.checked_at))}</span>`;
+  return `<span class="desc">New releases come from GitHub</span>`;
+}
+
+/** "Update to X…" once a check has found X, "Check Now" otherwise. */
+function updateButton(): string {
+  const pending = state.updateStatus.info?.pending;
+  if (pending)
+    return `<button class="btn-pill" data-action="update-to" data-version="${escapeHtml(pending)}">Update to ${escapeHtml(pending)}…</button>`;
+  const checking = state.updateStatus.checking;
+  return `<button class="btn-pill" data-action="check-updates" ${checking ? "disabled" : ""}>${checking ? "Checking…" : "Check Now"}</button>`;
 }
 
 function renderSettings(): string {
@@ -467,9 +492,9 @@ function renderSettings(): string {
             <span class="label">OpenWith ${escapeHtml(state.appVersion ?? "…")}</span>
             ${updateStatusLine()}
           </span>
-          <button class="btn-pill" data-action="check-updates" ${state.updateStatus.checking ? "disabled" : ""}>${state.updateStatus.checking ? "Checking…" : "Check Now"}</button>
+          ${updateButton()}
         </div>
-        ${toggleRow("autoUpdateCheck", s.autoUpdateCheck, "Check automatically", "Once per launch, in the background")}
+        ${toggleRow("autoUpdateCheck", s.autoUpdateCheck, "Check automatically", "Once a day, in the background")}
         <div class="settings-row">
           <span><span class="label">Channel</span><span class="desc">Beta gets new features earlier</span></span>
           ${segmented("set-channel", "channel", [{ key: "stable", label: "Stable" }, { key: "beta", label: "Beta" }], s.updateChannel)}
@@ -548,7 +573,63 @@ function renderSheet(): string {
   </div>`;
 }
 
-/** Toasts dismiss themselves; ones carrying an Undo button linger longer. */
+function renderUpdateSheet(): string {
+  const u = state.updateSheet;
+  if (!u) return "";
+  const mb = (bytes: number) => (bytes / 1_000_000).toFixed(1);
+  let body: string;
+  let actions: string;
+  switch (u.phase) {
+    case "checking":
+      body = `<div class="update-status-line">Checking the update…</div>`;
+      actions = `<button class="btn-pill" data-action="close-update-sheet">Cancel</button>`;
+      break;
+    case "ready": {
+      const date = u.date ? new Date(u.date) : null; // RFC 3339 from the updater
+      const released =
+        date && !Number.isNaN(date.getTime())
+          ? ` · released ${escapeHtml(date.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }))}`
+          : "";
+      // Plain text, escaped: the frontend renders with innerHTML and has IPC
+      // access, so notes from the network never become markup.
+      body = `
+        <div class="update-sub">You have ${escapeHtml(state.appVersion ?? "…")}${released}</div>
+        <div class="update-notes">${escapeHtml(u.notes.trim()) || `<span class="italic-muted">No release notes.</span>`}</div>
+        <div class="update-caveat">Replaces OpenWith.app in place and relaunches it. A custom Finder icon on the app is reset, as with any reinstall.</div>`;
+      actions = `
+        <button class="link-btn" data-action="update-release-page">Full release notes</button>
+        <span class="spacer"></span>
+        <button class="btn-pill" data-action="close-update-sheet">Not Now</button>
+        <button class="btn-primary" data-action="install-update">Install and Relaunch</button>`;
+      break;
+    }
+    case "downloading": {
+      const pct = u.total ? Math.min(100, (u.downloaded / u.total) * 100) : null;
+      body = `
+        <div class="update-status-line">Downloading… ${mb(u.downloaded)}${u.total ? ` of ${mb(u.total)}` : ""} MB</div>
+        <div class="update-bar ${pct === null ? "indeterminate" : ""}"><span style="width:${pct ?? 100}%"></span></div>`;
+      actions = "";
+      break;
+    }
+    case "installing":
+      body = `
+        <div class="update-status-line">Installing — OpenWith will relaunch…</div>
+        <div class="update-bar indeterminate"><span style="width:100%"></span></div>`;
+      actions = "";
+      break;
+  }
+  return `
+  <div class="sheet-overlay" data-action="close-update-sheet">
+    <div class="sheet update-sheet" data-action="swallow">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">Update to <span class="target mono">${escapeHtml(u.version)}</span></div>
+      ${body}
+      ${actions ? `<div class="update-actions">${actions}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+/** Toasts dismiss themselves; ones carrying a button linger longer. */
 let toastTimer: number | undefined;
 
 function showToast(toast: ToastState | null) {
@@ -560,7 +641,7 @@ function showToast(toast: ToastState | null) {
       state.toast = null;
       render();
     },
-    toast.undo ? 8000 : 5000,
+    toast.undo || toast.action ? 8000 : 5000,
   );
 }
 
@@ -568,7 +649,9 @@ function renderToast(): string {
   if (!state.toast) return "";
   const undoBtn = state.toast.undo
     ? `<button class="undo" data-action="undo">Undo</button>`
-    : "";
+    : state.toast.action
+      ? `<button class="undo" data-action="toast-action">${escapeHtml(state.toast.action.label)}</button>`
+      : "";
   return `
   <div class="toast">
     <span class="msg">${escapeHtml(state.toast.text)}</span>
@@ -619,6 +702,7 @@ function renderMain(): string {
   ${renderHeader()}
   ${body}
   ${renderSheet()}
+  ${renderUpdateSheet()}
   ${renderToast()}
   ${renderWindowDropOverlay()}`;
 }
@@ -1065,45 +1149,155 @@ function lookupDroppedFile(path: string) {
 }
 
 // ---------- update check ----------
+// The check itself runs in the backend (updates.rs) so both windows share one
+// answer; this window asks for it and renders whatever arrives.
 
-interface GithubRelease {
-  tag_name: string;
-  prerelease: boolean;
-  draft: boolean;
+function applyUpdateStatus(info: UpdateStatusDto) {
+  state.updateStatus.info = info;
+  // The scheduled check runs at most daily, so this repeats once a day for
+  // as long as the running build is behind, and stops at the upgrade. It
+  // never elbows out a toast that is still on screen (an Undo, say): the
+  // Settings line and the popover badge keep saying it meanwhile.
+  if (info.announce && info.pending && !state.toast) {
+    const version = info.pending;
+    showToast({
+      text: `OpenWith ${version} is available`,
+      action: { label: "Update…", run: () => void startUpdate(version) },
+    });
+  }
+  render();
 }
 
+// ---------- installing an update ----------
+// The app's own check (above) is the news; the updater runs only when the
+// user presses "Update to X…", and only for exactly that X. Anything else
+// (no key in this build, the manifest offering another version, which is
+// how a Beta rc ends up here, or any failure) opens X's release page.
+
+/** The update `check()` returned for the open sheet, held until Install. */
+let pendingUpdate: Update | null = null;
+
+const bareVersion = (v: string) => v.trim().replace(/^v/, "");
+
+async function openReleasePage(version: string, toast: string) {
+  await api.openReleasePage(version).catch(() => {});
+  showToast({ text: toast });
+  render();
+}
+
+function closeUpdateSheet() {
+  void pendingUpdate?.close().catch(() => {});
+  pendingUpdate = null;
+  state.updateSheet = null;
+}
+
+/** "Update to X…", from Settings, the toast or the popover. */
+async function startUpdate(version: string) {
+  if (state.updateSheet) return;
+  // The "available" toast has done its job, and would sit over the sheet.
+  if (state.toast?.action) showToast(null);
+  if (!(await api.updaterAvailable().catch(() => false))) {
+    await openReleasePage(version, `Opened the release page for ${version}`);
+    return;
+  }
+  const sheet = {
+    version,
+    phase: "checking" as const,
+    notes: "",
+    date: null,
+    downloaded: 0,
+    total: null,
+  };
+  state.updateSheet = sheet;
+  render();
+  let update: Update | null;
+  try {
+    update = await check({ timeout: 30_000 });
+  } catch {
+    update = null;
+  }
+  // Cancelled while checking, or replaced by another sheet.
+  if (state.updateSheet !== sheet) {
+    void update?.close().catch(() => {});
+    return;
+  }
+  if (!update || bareVersion(update.version) !== bareVersion(version)) {
+    void update?.close().catch(() => {});
+    closeUpdateSheet();
+    await openReleasePage(version, `Opened the release page for ${version}`);
+    return;
+  }
+  pendingUpdate = update;
+  state.updateSheet = {
+    ...sheet,
+    phase: "ready",
+    notes: update.body ?? "",
+    date: update.date ?? null,
+  };
+  render();
+}
+
+async function installUpdate() {
+  const sheet = state.updateSheet;
+  const update = pendingUpdate;
+  if (!sheet || !update || sheet.phase !== "ready") return;
+  sheet.phase = "downloading";
+  render();
+  try {
+    // Verified against the bundled public key (and the version it was
+    // signed for) before anything is replaced; a bad signature throws here.
+    await update.downloadAndInstall((event) => {
+      if (event.event === "Started") sheet.total = event.data.contentLength ?? null;
+      else if (event.event === "Progress") sheet.downloaded += event.data.chunkLength;
+      else sheet.phase = "installing";
+      render();
+    });
+  } catch {
+    closeUpdateSheet();
+    await openReleasePage(sheet.version, `Couldn't install ${sheet.version} — opened its release page`);
+    return;
+  }
+  await relaunch();
+}
+
+/** "Check Now" and channel switches: always asks GitHub. */
 async function checkForUpdates() {
   if (state.updateStatus.checking) return;
   state.updateStatus.checking = true;
-  state.updateStatus.error = null;
   render();
   try {
-    const resp = await fetch(
-      "https://api.github.com/repos/ColeMei/openwith/releases?per_page=15",
-      { headers: { Accept: "application/vnd.github+json" } },
+    applyUpdateStatus(
+      await api.checkForUpdate(state.settings.updateChannel, true, state.settings.autoUpdateCheck),
     );
-    if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
-    const releases = (await resp.json()) as GithubRelease[];
-    const beta = state.settings.updateChannel === "beta";
-    const candidate = releases.find(
-      (r) => !r.draft && (beta || !r.prerelease),
-    );
-    if (!candidate) throw new Error("no releases found");
-    state.updateStatus.latest = candidate.tag_name.replace(/^v/, "");
-    // Seconds matter: repeat "Check Now" clicks within the same minute must
-    // still visibly change something.
-    state.updateStatus.checkedAt = new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch (e) {
-    state.updateStatus.error = e instanceof Error ? e.message : String(e);
   } finally {
     state.updateStatus.checking = false;
     render();
   }
 }
+
+/** Launch and focus: asks GitHub at most once a day, never with "Check
+ * automatically" off. The answer also arrives as `update-status`. */
+function scheduledUpdateCheck() {
+  if (!state.settings.autoUpdateCheck) return;
+  api
+    .checkForUpdate(state.settings.updateChannel, false, true)
+    .then(applyUpdateStatus)
+    .catch(() => {});
+}
+
+void getCurrentWindow().listen<UpdateStatusDto>("update-status", (e) => {
+  applyUpdateStatus(e.payload);
+});
+
+void getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+  if (focused) scheduledUpdateCheck();
+});
+
+// "Update to X…" pressed in the popover, which hides on blur and is too small
+// for the confirm step, so it hands over to this window.
+void getCurrentWindow().listen<string>("start-update", (e) => {
+  void startUpdate(e.payload);
+});
 
 // ---------- event delegation ----------
 
@@ -1153,6 +1347,19 @@ root.addEventListener("click", (e) => {
       state.sheet = null;
       render();
       break;
+    case "close-update-sheet":
+      // Nothing can stop a download midway, so the sheet stays up for it.
+      if (state.updateSheet?.phase === "ready" || state.updateSheet?.phase === "checking") {
+        closeUpdateSheet();
+        render();
+      }
+      break;
+    case "install-update":
+      void installUpdate();
+      break;
+    case "update-release-page":
+      if (state.updateSheet) void api.openReleasePage(state.updateSheet.version).catch(() => {});
+      break;
     case "swallow":
       break;
     case "choose-app":
@@ -1196,6 +1403,16 @@ root.addEventListener("click", (e) => {
     case "check-updates":
       void checkForUpdates();
       break;
+    case "update-to":
+      if (target.dataset.version) void startUpdate(target.dataset.version);
+      break;
+    case "toast-action": {
+      const action = state.toast?.action;
+      showToast(null);
+      render();
+      action?.run();
+      break;
+    }
     case "toggle": {
       const key = target.dataset.toggle as
         | "launchAtLogin"
@@ -1213,7 +1430,9 @@ root.addEventListener("click", (e) => {
         api.setDockVisible(true).catch(() => {});
       }
       saveSettings();
-      if (key === "launchAtLogin") {
+      if (key === "autoUpdateCheck") {
+        scheduledUpdateCheck();
+      } else if (key === "launchAtLogin") {
         void applyLaunchAtLogin(state.settings.launchAtLogin);
       } else if (key === "showMenuBar") {
         api.setTrayEnabled(state.settings.showMenuBar).catch(() => {
@@ -1387,6 +1606,13 @@ document.addEventListener("keydown", (e) => {
     }
     document.getElementById(id)?.focus();
   } else if (e.key === "Escape") {
+    if (state.updateSheet) {
+      if (state.updateSheet.phase === "ready" || state.updateSheet.phase === "checking") {
+        closeUpdateSheet();
+        render();
+      }
+      return;
+    }
     if (state.sheet) {
       state.sheet = null;
       render();
@@ -1492,9 +1718,14 @@ async function bootstrap() {
 
   getVersion().then((v) => {
     state.appVersion = v;
-    if (state.settings.autoUpdateCheck) void checkForUpdates();
-    else render();
+    render();
   });
+  // Whatever an earlier check remembered shows at once; then a daily check.
+  api
+    .getUpdateStatus(state.settings.updateChannel)
+    .then(applyUpdateStatus)
+    .catch(() => {});
+  scheduledUpdateCheck();
   api.detectCli().then((v) => {
     state.cliVersion = v;
     render();
