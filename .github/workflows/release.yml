@@ -301,3 +301,15 @@ jobs:
             (cd dist && sha256sum ./*)
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # A release published from the web UI was public before its assets
+  # existed, so the publish-triggered runs of these found nothing to do.
+  # Now that the assets are up, write the manifest and bump the tap.
+  latest:
+    needs: sign
+    if: needs.sign.outputs.published-stable == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/latest.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
