@@ -234,6 +234,20 @@ pub fn newest_offered(releases: &[Release], beta: bool) -> Option<&Release> {
         .map(|(_, r)| r)
 }
 
+// ---------- whether this build may install ----------
+
+/// The placeholder `plugins.updater.pubkey` carries until the real key is
+/// committed. `release.yml` refuses to build a release with it.
+pub const PUBKEY_PLACEHOLDER: &str = "__TAURI_UPDATER_PUBKEY__";
+
+/// Whether a configured updater public key is a real one. A build without
+/// it (a local build, or one from before the key existed) never starts the
+/// updater, and "Update to X…" opens the release page as it always did.
+pub fn is_real_pubkey(key: &str) -> bool {
+    let key = key.trim();
+    !key.is_empty() && key != PUBKEY_PLACEHOLDER && !key.starts_with("__")
+}
+
 // ---------- where to send somebody ----------
 
 const RELEASES_PAGE: &str = "https://github.com/ColeMei/openwith/releases";
@@ -476,5 +490,16 @@ mod tests {
         ] {
             assert_eq!(release_page(odd), RELEASES_PAGE, "{odd:?}");
         }
+    }
+
+    #[test]
+    fn placeholder_key_is_not_real() {
+        assert!(!is_real_pubkey(PUBKEY_PLACEHOLDER));
+        assert!(!is_real_pubkey(""));
+        assert!(!is_real_pubkey("  "));
+        assert!(!is_real_pubkey("__SOMETHING_ELSE__"));
+        assert!(is_real_pubkey(
+            "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCQ0QK"
+        ));
     }
 }

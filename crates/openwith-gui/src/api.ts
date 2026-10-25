@@ -142,6 +142,7 @@ export const api = {
     invoke<void>("set_popover_pinned", { pinned }),
   setToggleShortcut: (accelerator: string) =>
     invoke<void>("set_toggle_shortcut", { accelerator }),
+  updaterAvailable: () => invoke<boolean>("updater_available"),
   openReleasePage: (version: string) =>
     invoke<void>("open_release_page", { version }),
   getUpdateStatus: (channel: string) =>

@@ -157,6 +157,26 @@ async fn fetch_newest_tag(app: &AppHandle, beta: bool) -> Result<Option<String>,
     Ok(release::newest_offered(&releases, beta).map(|r| r.tag_name.clone()))
 }
 
+/// Whether this build registered the updater, i.e. ships a real public key.
+pub struct UpdaterReady(pub bool);
+
+/// Read `plugins.updater.pubkey` from the bundled config.
+pub fn updater_configured(config: &tauri::Config) -> bool {
+    config
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|updater| updater.get("pubkey"))
+        .and_then(|key| key.as_str())
+        .is_some_and(release::is_real_pubkey)
+}
+
+/// Whether "Update to X…" can install in place, or must open the page.
+#[tauri::command]
+pub fn updater_available(ready: tauri::State<'_, UpdaterReady>) -> bool {
+    ready.0
+}
+
 /// Open the release page for `version` in the browser: the way to get an
 /// update by hand.
 #[tauri::command]

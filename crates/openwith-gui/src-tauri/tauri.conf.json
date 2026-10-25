@@ -52,5 +52,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "__TAURI_UPDATER_PUBKEY__",
+      "endpoints": [
+        "https://github.com/ColeMei/openwith/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
+    }
   }
 }
