@@ -166,7 +166,7 @@ Releases are built, signed and published by CI; nothing is built on a Mac by han
 
 Between publishing and step 6 (~15 min plus the approval) the release has no assets. The app doesn't announce a release until its .dmg is attached, and an "Update to X…" pressed then falls back to the release page.
 
-**Update signing key.** Generated once by the maintainer (`npx @tauri-apps/cli signer generate`), private half and password kept offline and as the `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets of the `release` environment (required reviewer: the maintainer; deployment tags `v*`). Never generate, print or handle it in a session. The public half is `plugins.updater.pubkey` in `tauri.conf.json`. Run **Release setup check** (`release-check.yml`) after setting or rotating it. Losing the key means no installed copy can update in place again (manual reinstall); rotating it means every copy before the rotation must reinstall by hand.
+**Update signing key.** Generated once by the maintainer (`npx @tauri-apps/cli signer generate`), private half and password kept offline and as the `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets of the `release` environment (required reviewer: the maintainer, self-review allowed; deployment refs: tags `v*` and branch `main`, since the key check and test builds are dispatched from `main`). Never generate, print or handle it in a session. The public half is `plugins.updater.pubkey` in `tauri.conf.json`. Run **Release setup check** (`release-check.yml`) after setting or rotating it. Losing the key means no installed copy can update in place again (manual reinstall); rotating it means every copy before the rotation must reinstall by hand.
 
 ### Pre-releases
 
