@@ -801,3 +801,45 @@ pub fn import_toml(
         skipped,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use objc2::AllocAnyThread;
+    use objc2_app_kit::{NSImage, NSWorkspace, NSWorkspaceIconCreationOptions};
+    use objc2_foundation::{NSData, NSString};
+
+    /// Sets and clears a custom icon through the API Finder's Get Info and
+    /// icon tools use, so CI's macOS runner checks the `Icon\r` assumption
+    /// behind `has_custom_icon` against the real system.
+    #[test]
+    fn custom_icon_detected_after_set_and_gone_after_clear() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("openwith-icon-test-{unique}"));
+        let bundle = root.join("OpenWith.app");
+        std::fs::create_dir_all(bundle.join("Contents")).unwrap();
+        let path = NSString::from_str(&bundle.to_string_lossy());
+        let workspace = NSWorkspace::sharedWorkspace();
+
+        assert!(!has_custom_icon(&bundle));
+
+        let data = NSData::with_bytes(include_bytes!("../icons/icon.png"));
+        let image = NSImage::initWithData(NSImage::alloc(), &data).unwrap();
+        assert!(workspace.setIcon_forFile_options(
+            Some(&image),
+            &path,
+            NSWorkspaceIconCreationOptions(0)
+        ));
+        assert!(has_custom_icon(&bundle));
+
+        assert!(workspace.setIcon_forFile_options(None, &path, NSWorkspaceIconCreationOptions(0)));
+        assert!(!has_custom_icon(&bundle));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
