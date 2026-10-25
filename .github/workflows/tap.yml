@@ -1,0 +1,132 @@
+name: Homebrew tap
+
+# Bumps the cask (Casks/openwith-gui.rb: version + sha256 of the dmg) and the
+# formula (Formula/openwith.rb: url + sha256 of the tag's source tarball) in
+# ColeMei/homebrew-openwith when a stable release is published, so brew never
+# lags the in-app notice. This used to be the last two manual steps of a
+# release.
+#
+# Needs the HOMEBREW_TAP_TOKEN secret: a fine-grained token with Contents
+# read/write on ColeMei/homebrew-openwith and nothing else.
+#
+# A release published from the web UI fires `published` before release.yml
+# has built its dmg; that run stops with a notice, and release.yml calls this
+# again once the dmg is attached. A pre-release never reaches brew.
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: false
+  # By hand, for a release published before this workflow existed or whose
+  # run failed.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to bump the tap to, e.g. v0.7.0"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-tap
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: ${{ github.event_name != 'release' || (!github.event.release.draft && !github.event.release.prerelease) }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Version and checksums of the published release
+        id: release
+        run: |
+          set -euo pipefail
+          # Only maintainers can publish or dispatch, but the tag still goes
+          # into sed patterns below, so it is held to a release tag's shape.
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a stable release tag"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          DMG="OpenWith_${VERSION}_aarch64.dmg"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/release.json"
+          if [[ "$(jq -r '.draft or .prerelease' "$RUNNER_TEMP/release.json")" == true ]]; then
+            echo "::notice::$TAG is a draft or a pre-release; the tap stays where it is"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! jq -e --arg n "$DMG" '.assets[] | select(.name == $n)' "$RUNNER_TEMP/release.json" >/dev/null; then
+            echo "::notice::$TAG has no $DMG yet; release.yml bumps the tap once it is attached"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Computed from the files people download, and the dmg checked
+          # against the digest GitHub recorded at upload: a mismatch stops
+          # here rather than shipping a cask that fails for everyone.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$DMG" --dir "$RUNNER_TEMP"
+          DMG_SHA="$(sha256sum "$RUNNER_TEMP/$DMG" | cut -d' ' -f1)"
+          RECORDED="$(jq -r --arg n "$DMG" '.assets[] | select(.name == $n) | .digest // ""' "$RUNNER_TEMP/release.json")"
+          if [[ -n "$RECORDED" && "$RECORDED" != "sha256:$DMG_SHA" ]]; then
+            echo "::error::$DMG sha256 is $DMG_SHA but GitHub recorded $RECORDED"
+            exit 1
+          fi
+          curl -fsSL -o "$RUNNER_TEMP/source.tar.gz" \
+            "https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$TAG.tar.gz"
+          SRC_SHA="$(sha256sum "$RUNNER_TEMP/source.tar.gz" | cut -d' ' -f1)"
+
+          {
+            echo "skip=false"
+            echo "version=$VERSION"
+            echo "dmg_sha=$DMG_SHA"
+            echo "src_sha=$SRC_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Push to the tap
+        if: steps.release.outputs.skip == 'false'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+          DMG_SHA: ${{ steps.release.outputs.dmg_sha }}
+          SRC_SHA: ${{ steps.release.outputs.src_sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TAP_TOKEN" ]]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is not set; see the comment at the top of tap.yml"
+            exit 1
+          fi
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/ColeMei/homebrew-openwith.git" "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+
+          sed -i -E \
+            -e "s/^(  version \")[^\"]*(\")\$/\\1${VERSION}\\2/" \
+            -e "s/^(  sha256 \")[^\"]*(\")\$/\\1${DMG_SHA}\\2/" \
+            Casks/openwith-gui.rb
+          sed -i -E \
+            -e "s|^(  url \"https://github.com/ColeMei/openwith/archive/refs/tags/v)[^\"]*(\.tar\.gz\")\$|\\1${VERSION}\\2|" \
+            -e "s/^(  sha256 \")[^\"]*(\")\$/\\1${SRC_SHA}\\2/" \
+            Formula/openwith.rb
+          # Every line must have landed, or the patterns no longer match the
+          # files' shape and the bump would be half done.
+          grep -qxF "  version \"${VERSION}\"" Casks/openwith-gui.rb
+          grep -qxF "  sha256 \"${DMG_SHA}\"" Casks/openwith-gui.rb
+          grep -qxF "  url \"https://github.com/ColeMei/openwith/archive/refs/tags/v${VERSION}.tar.gz\"" Formula/openwith.rb
+          grep -qxF "  sha256 \"${SRC_SHA}\"" Formula/openwith.rb
+
+          if git diff --quiet; then
+            echo "Tap already at v$VERSION"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -qam "openwith $VERSION"
+          git push origin HEAD
