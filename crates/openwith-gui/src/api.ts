@@ -142,6 +142,8 @@ export const api = {
     invoke<void>("set_popover_pinned", { pinned }),
   setToggleShortcut: (accelerator: string) =>
     invoke<void>("set_toggle_shortcut", { accelerator }),
+  openReleasePage: (version: string) =>
+    invoke<void>("open_release_page", { version }),
   getUpdateStatus: (channel: string) =>
     invoke<UpdateStatusDto>("get_update_status", { channel }),
   /** `manual` always asks GitHub; otherwise only when a daily check is due

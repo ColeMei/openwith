@@ -234,6 +234,28 @@ pub fn newest_offered(releases: &[Release], beta: bool) -> Option<&Release> {
         .map(|(_, r)| r)
 }
 
+// ---------- where to send somebody ----------
+
+const RELEASES_PAGE: &str = "https://github.com/ColeMei/openwith/releases";
+
+/// The page for one release: its notes and its download. The version comes
+/// over the network, so it only goes into the URL when it parses as a
+/// version and holds nothing but the characters one is made of; anything
+/// else gets the list of releases, one click further away.
+pub fn release_page(version: &str) -> String {
+    let version = version.trim();
+    let version = version.strip_prefix('v').unwrap_or(version);
+    let plain = Version::parse(version).is_some()
+        && version
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+    if plain {
+        format!("{RELEASES_PAGE}/tag/v{version}")
+    } else {
+        RELEASES_PAGE.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -432,5 +454,27 @@ mod tests {
         ];
         assert_eq!(offered(&releases, false), Some("v0.7.0"));
         assert_eq!(offered(&[], false), None);
+    }
+
+    #[test]
+    fn release_page_names_the_version() {
+        let tag = "https://github.com/ColeMei/openwith/releases/tag/";
+        assert_eq!(release_page("0.7.1"), format!("{tag}v0.7.1"));
+        assert_eq!(release_page("v0.7.1"), format!("{tag}v0.7.1"));
+        assert_eq!(release_page("0.7.0-rc.2"), format!("{tag}v0.7.0-rc.2"));
+    }
+
+    #[test]
+    fn release_page_falls_back_to_the_list() {
+        for odd in [
+            "",
+            "latest",
+            "0.7.1/../../x",
+            "0.7.1?x=1",
+            "0.7.1#x",
+            "0.7.1+abc",
+        ] {
+            assert_eq!(release_page(odd), RELEASES_PAGE, "{odd:?}");
+        }
     }
 }

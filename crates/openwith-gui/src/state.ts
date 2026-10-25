@@ -22,6 +22,8 @@ export interface SheetState {
 export interface ToastState {
   text: string;
   undo?: () => void;
+  /** A button other than Undo, e.g. "Update…". */
+  action?: { label: string; run: () => void };
 }
 
 export interface ImportPending {

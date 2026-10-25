@@ -1281,6 +1281,29 @@ html.popover-window body {
   background: var(--pop-drop-bg);
 }
 
+/* Sits left of Pin; takes over the auto margin that pushes the pair right. */
+.pop-update {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: none;
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: default;
+  font-family: inherit;
+}
+
+.pop-update:hover {
+  background: var(--accent-soft-hover);
+}
+
+.pop-update + .pop-pin {
+  margin-left: 6px;
+}
+
 .pop-dropzone {
   margin: 0 12px 10px;
   border: 1.5px dashed var(--claim-border);

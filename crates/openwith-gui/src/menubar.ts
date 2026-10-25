@@ -6,6 +6,7 @@ import {
   type ExtMatchDto,
   type PickerAppDto,
   type RecentChangeDto,
+  type UpdateStatusDto,
 } from "./api";
 import { avatarColor, initials } from "./colors";
 import {
@@ -28,6 +29,8 @@ interface PopoverState {
   /** Keyboard cursor into `matches`, or into `picker.apps` when the picker is
    * open. Clamped on read — both lists change under it as the user types. */
   cursor: number;
+  /** Newer version waiting, from the backend's shared release check. */
+  updatePending: string | null;
 }
 
 const state: PopoverState = {
@@ -37,6 +40,7 @@ const state: PopoverState = {
   picker: null,
   pinned: false,
   cursor: 0,
+  updatePending: null,
 };
 
 /** Mirrors the main window: while the arrows are driving, hover is inert. */
@@ -141,6 +145,19 @@ function renderPicker(): string {
   </div>`;
 }
 
+/** Stays up for as long as the running build is behind; it is derived from
+ * the shared release check, so there is nothing to dismiss. */
+function renderUpdateBadge(): string {
+  const v = state.updatePending;
+  if (!v) return "";
+  return `<button class="pop-update" data-action="update-to" data-version="${escapeHtml(v)}" title="OpenWith ${escapeHtml(v)} is available">Update to ${escapeHtml(v)}…</button>`;
+}
+
+function applyUpdateStatus(info: UpdateStatusDto) {
+  state.updatePending = info.pending;
+  render();
+}
+
 function render() {
   const active = document.activeElement as HTMLInputElement | null;
   const hadFocus = active?.id === "pop-search";
@@ -150,6 +167,7 @@ function render() {
   <div class="popover">
     <div class="pop-head">
       <span class="title">OpenWith</span>
+      ${renderUpdateBadge()}
       <button class="pop-pin ${state.pinned ? "active" : ""}" data-action="pin" title="Keep the panel open while you grab a file from Finder">${state.pinned ? "Pinned ✓" : "Pin"}</button>
       <span class="hotkey">${escapeHtml(shortcutGlyphs(shared.settings.toggleShortcut))}</span>
     </div>
@@ -265,6 +283,9 @@ root.addEventListener("click", (e) => {
     case "open-main":
       void api.showMainWindow();
       break;
+    case "update-to":
+      if (target.dataset.version) void api.openReleasePage(target.dataset.version);
+      break;
     case "quit":
       void api.quitApp();
       break;
@@ -357,12 +378,22 @@ void popoverWindow.listen("popover-shown", () => {
     api.checkForUpdate(shared.settings.updateChannel, false, true).catch(() => {});
 });
 
+// Every check's answer, whichever window asked for it.
+void popoverWindow.listen<UpdateStatusDto>("update-status", (e) => {
+  applyUpdateStatus(e.payload);
+});
+
 // Settings changed in the main window (shortcut, bundle IDs) reach us here.
 // The history window is one of them, and widening it needs rows we never
 // fetched — so refetch rather than just re-render.
 window.addEventListener("storage", () => {
   reloadSettings();
   void refreshRecent();
+  // The answer is per channel, and the channel may be what changed.
+  api
+    .getUpdateStatus(shared.settings.updateChannel)
+    .then(applyUpdateStatus)
+    .catch(() => {});
   render();
 });
 
@@ -379,3 +410,7 @@ getCurrentWebview().onDragDropEvent((event) => {
 
 render();
 void refreshRecent();
+api
+  .getUpdateStatus(shared.settings.updateChannel)
+  .then(applyUpdateStatus)
+  .catch(() => {});

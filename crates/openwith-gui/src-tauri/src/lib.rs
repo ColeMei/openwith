@@ -136,6 +136,7 @@ pub fn run() {
             commands::set_toggle_shortcut,
             updates::get_update_status,
             updates::check_for_update,
+            updates::open_release_page,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

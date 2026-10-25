@@ -425,11 +425,20 @@ function checkedAtLabel(unixSeconds: number): string {
 function updateStatusLine(): string {
   const u = state.updateStatus.info;
   if (u?.pending)
-    return `<span class="desc warn-text">Update ${escapeHtml(u.pending)} available — <span class="mono">brew upgrade --cask openwith-gui</span></span>`;
+    return `<span class="desc warn-text">OpenWith ${escapeHtml(u.pending)} is available</span>`;
   if (u?.error) return `<span class="desc warn-text">Check failed — ${escapeHtml(u.error)}</span>`;
   if (u?.checked_at)
     return `<span class="desc ok">✓ Up to date · last checked ${escapeHtml(checkedAtLabel(u.checked_at))}</span>`;
   return `<span class="desc">Updates ship via Homebrew</span>`;
+}
+
+/** "Update to X…" once a check has found X, "Check Now" otherwise. */
+function updateButton(): string {
+  const pending = state.updateStatus.info?.pending;
+  if (pending)
+    return `<button class="btn-pill" data-action="update-to" data-version="${escapeHtml(pending)}">Update to ${escapeHtml(pending)}…</button>`;
+  const checking = state.updateStatus.checking;
+  return `<button class="btn-pill" data-action="check-updates" ${checking ? "disabled" : ""}>${checking ? "Checking…" : "Check Now"}</button>`;
 }
 
 function renderSettings(): string {
@@ -481,7 +490,7 @@ function renderSettings(): string {
             <span class="label">OpenWith ${escapeHtml(state.appVersion ?? "…")}</span>
             ${updateStatusLine()}
           </span>
-          <button class="btn-pill" data-action="check-updates" ${state.updateStatus.checking ? "disabled" : ""}>${state.updateStatus.checking ? "Checking…" : "Check Now"}</button>
+          ${updateButton()}
         </div>
         ${toggleRow("autoUpdateCheck", s.autoUpdateCheck, "Check automatically", "Once a day, in the background")}
         <div class="settings-row">
@@ -562,7 +571,7 @@ function renderSheet(): string {
   </div>`;
 }
 
-/** Toasts dismiss themselves; ones carrying an Undo button linger longer. */
+/** Toasts dismiss themselves; ones carrying a button linger longer. */
 let toastTimer: number | undefined;
 
 function showToast(toast: ToastState | null) {
@@ -574,7 +583,7 @@ function showToast(toast: ToastState | null) {
       state.toast = null;
       render();
     },
-    toast.undo ? 8000 : 5000,
+    toast.undo || toast.action ? 8000 : 5000,
   );
 }
 
@@ -582,7 +591,9 @@ function renderToast(): string {
   if (!state.toast) return "";
   const undoBtn = state.toast.undo
     ? `<button class="undo" data-action="undo">Undo</button>`
-    : "";
+    : state.toast.action
+      ? `<button class="undo" data-action="toast-action">${escapeHtml(state.toast.action.label)}</button>`
+      : "";
   return `
   <div class="toast">
     <span class="msg">${escapeHtml(state.toast.text)}</span>
@@ -1084,7 +1095,26 @@ function lookupDroppedFile(path: string) {
 
 function applyUpdateStatus(info: UpdateStatusDto) {
   state.updateStatus.info = info;
+  // The scheduled check runs at most daily, so this repeats once a day for
+  // as long as the running build is behind, and stops at the upgrade. It
+  // never elbows out a toast that is still on screen (an Undo, say): the
+  // Settings line and the popover badge keep saying it meanwhile.
+  if (info.announce && info.pending && !state.toast) {
+    const version = info.pending;
+    showToast({
+      text: `OpenWith ${version} is available`,
+      action: { label: "Update…", run: () => void startUpdate(version) },
+    });
+  }
   render();
+}
+
+/** "Update to X…", from Settings, the toast or the popover. */
+async function startUpdate(version: string) {
+  await api.openReleasePage(version).catch((e) => {
+    showToast({ text: `Couldn't open the release page: ${e}` });
+    render();
+  });
 }
 
 /** "Check Now" and channel switches: always asks GitHub. */
@@ -1211,6 +1241,16 @@ root.addEventListener("click", (e) => {
     case "check-updates":
       void checkForUpdates();
       break;
+    case "update-to":
+      if (target.dataset.version) void startUpdate(target.dataset.version);
+      break;
+    case "toast-action": {
+      const action = state.toast?.action;
+      showToast(null);
+      render();
+      action?.run();
+      break;
+    }
     case "toggle": {
       const key = target.dataset.toggle as
         | "launchAtLogin"

@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::release;
 
@@ -154,6 +155,15 @@ async fn fetch_newest_tag(app: &AppHandle, beta: bool) -> Result<Option<String>,
         .await
         .map_err(|_| "unexpected reply from GitHub".to_string())?;
     Ok(release::newest_offered(&releases, beta).map(|r| r.tag_name.clone()))
+}
+
+/// Open the release page for `version` in the browser: the way to get an
+/// update by hand.
+#[tauri::command]
+pub fn open_release_page(app: AppHandle, version: String) -> Result<(), String> {
+    app.opener()
+        .open_url(release::release_page(&version), None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 /// The current answer, without touching the network.
