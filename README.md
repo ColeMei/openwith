@@ -77,12 +77,8 @@ Or download the `.dmg` from the [latest release](https://github.com/ColeMei/open
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/OpenWith.app
 > ```
->
-> Or install without the quarantine flag in the first place:
->
-> ```bash
-> brew install --cask --no-quarantine ColeMei/openwith/openwith-gui
-> ```
+
+**Updates.** The app checks GitHub for a new release once a day (Settings → Updates → *Check automatically*; off means it never asks). When one is out, a toast, the menu-bar popover and Settings offer **Update to X…**, which shows the release notes and, on Install, downloads the update, verifies its signature against the key built into the app, replaces OpenWith.app in place and relaunches. Nothing installs without that press. If installing isn't possible, it opens the release page instead. Beta-channel pre-releases always install from their release page. Replacing the app resets a custom Finder icon on it, as any reinstall does.
 
 To build it from source instead: `cd crates/openwith-gui && npm install && npm run tauri build`.
 
