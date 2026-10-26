@@ -1,0 +1,110 @@
+name: Update manifest
+
+# Writes latest.json, the updater's manifest, and attaches it to the
+# release. Installed copies read it from releases/latest/download/latest.json,
+# which always follows the newest published stable release, so a draft or a
+# pre-release is never offered.
+#
+# Written from the published notes rather than at build time, so the notes
+# the update sheet shows are the ones you published (and, on `edited`, the
+# ones you fixed afterwards). The signature was made in release.yml behind
+# its approval and arrives as the .sig asset; this workflow never sees the
+# signing key.
+#
+# A release published from the web UI fires `published` before release.yml
+# has built anything; that run finds no signed archive and stops with a
+# notice, and release.yml calls this again once the assets are attached.
+on:
+  release:
+    types: [published, edited]
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to write latest.json for, e.g. v0.7.0"
+        required: true
+      include_prerelease:
+        description: "Also for a pre-release (end-to-end test builds only; releases/latest never serves it)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: latest-json-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  manifest:
+    if: ${{ github.event_name != 'release' || (!github.event.release.draft && !github.event.release.prerelease) }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      INCLUDE_PRERELEASE: ${{ inputs.include_prerelease == true }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Write and attach latest.json
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$TAG' is not a release tag"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          ARCHIVE="OpenWith_${VERSION}_aarch64.app.tar.gz"
+          cd "$RUNNER_TEMP"
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json
+          if [[ "$(jq -r .draft release.json)" == true ]]; then
+            echo "::notice::$TAG is a draft; latest.json is written when it is published"
+            exit 0
+          fi
+          if [[ "$(jq -r .prerelease release.json)" == true && "$INCLUDE_PRERELEASE" != true ]]; then
+            echo "::notice::$TAG is a pre-release; the updater only offers stable releases"
+            exit 0
+          fi
+          # Releases from before in-app updates, and the publish-triggered run
+          # of a web-UI release, have no signed archive. Not an error.
+          if ! jq -e --arg n "$ARCHIVE.sig" '.assets[] | select(.name == $n)' release.json >/dev/null; then
+            echo "::notice::$TAG has no $ARCHIVE.sig yet, so no latest.json"
+            exit 0
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ARCHIVE.sig" --clobber
+
+          python3 - "$VERSION" "$ARCHIVE" <<'PY'
+          import json, re, sys
+          version, archive = sys.argv[1:]
+          release = json.load(open("release.json"))
+          asset = next(a for a in release["assets"] if a["name"] == archive)
+
+          # The sheet shows notes as plain text. Drop the template's Install
+          # section (brew commands mean nothing to someone updating in place)
+          # and the bold markers, keep everything else as written.
+          lines = []
+          for line in (release.get("body") or "").replace("\r\n", "\n").split("\n"):
+              if line.strip().strip("*#: ").lower() == "install":
+                  break
+              lines.append(re.sub(r"\*\*(.+?)\*\*", r"\1", line))
+          notes = "\n".join(lines).strip()
+
+          manifest = {
+              "version": version,
+              "notes": notes,
+              "pub_date": release["published_at"],
+              "platforms": {
+                  "darwin-aarch64": {
+                      "signature": open(archive + ".sig").read().strip(),
+                      "url": asset["browser_download_url"],
+                  }
+              },
+          }
+          json.dump(manifest, open("latest.json", "w"), indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
+
+          gh release upload "$TAG" latest.json --repo "$GITHUB_REPOSITORY" --clobber

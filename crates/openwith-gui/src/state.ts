@@ -22,6 +22,19 @@ export interface SheetState {
 export interface ToastState {
   text: string;
   undo?: () => void;
+  /** A button other than Undo, e.g. "Update…". */
+  action?: { label: string; run: () => void };
+}
+
+/** The "Update to X…" confirm step: notes + Install, then progress. */
+export interface UpdateSheetState {
+  /** The version the notice named; only exactly this one is installed. */
+  version: string;
+  phase: "checking" | "ready" | "downloading" | "installing";
+  notes: string;
+  date: string | null;
+  downloaded: number;
+  total: number | null;
 }
 
 export interface ImportPending {
@@ -31,10 +44,10 @@ export interface ImportPending {
 }
 
 export interface UpdateStatus {
+  /** A manual check from this window is in flight. */
   checking: boolean;
-  latest: string | null; // newest version seen on GitHub, without the leading v
-  checkedAt: string | null; // human time of the last successful check
-  error: string | null;
+  /** The backend's shared answer; both windows hold the same one. */
+  info: import("./api").UpdateStatusDto | null;
 }
 
 /** User preferences, persisted to localStorage. Mirrors the prototype's
@@ -134,6 +147,7 @@ export interface State {
   selectedBundleId: string | null;
 
   sheet: SheetState | null;
+  updateSheet: UpdateSheetState | null;
   toast: ToastState | null;
   importPending: ImportPending | null;
   windowDragOver: boolean;
@@ -172,6 +186,7 @@ export const state: State = {
   selectedBundleId: null,
 
   sheet: null,
+  updateSheet: null,
   toast: null,
   importPending: null,
   windowDragOver: false,
@@ -184,7 +199,7 @@ export const state: State = {
 
   appVersion: null,
   cliVersion: null,
-  updateStatus: { checking: false, latest: null, checkedAt: null, error: null },
+  updateStatus: { checking: false, info: null },
 };
 
 export function escapeHtml(input: string): string {
