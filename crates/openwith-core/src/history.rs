@@ -245,14 +245,16 @@ mod tests {
         let path = temp_log("undone");
         let _ = std::fs::remove_file(&path);
 
-        let mut set = event("set", ".md", ts(10));
+        // Read once: the lookup must use the exact timestamp that was recorded.
+        let base = ts(0);
+        let mut set = event("set", ".md", base + 10);
         set.old = Some("a".into());
         set.new = Some("b".into());
         record_at(&path, set).unwrap();
-        record_at(&path, event("export", "x.toml", ts(11))).unwrap();
+        record_at(&path, event("export", "x.toml", base + 11)).unwrap();
 
         assert!(recent_at(&path, 5).unwrap()[1].undoable());
-        mark_undone_at(&path, "set", ".md", ts(10), Some("b")).unwrap();
+        mark_undone_at(&path, "set", ".md", base + 10, Some("b")).unwrap();
 
         let events = recent_at(&path, 5).unwrap();
         assert!(events[1].undone);
@@ -269,18 +271,21 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         // A set and another event in the same second, the newer one already
-        // undone — marking must flag the still-active older twin.
-        let mut a = event("set", ".md", ts(10));
+        // undone — marking must flag the still-active older twin. The
+        // timestamp is read once: ts() follows the clock, and a second
+        // boundary between calls made the twins (and the lookup) differ.
+        let t = ts(10);
+        let mut a = event("set", ".md", t);
         a.old = Some("typora".into());
         a.new = Some("textedit".into());
-        let mut b = event("set", ".md", ts(10));
+        let mut b = event("set", ".md", t);
         b.old = Some("textedit".into());
         b.new = Some("typora".into());
         b.undone = true;
         record_at(&path, a).unwrap();
         record_at(&path, b).unwrap();
 
-        mark_undone_at(&path, "set", ".md", ts(10), Some("textedit")).unwrap();
+        mark_undone_at(&path, "set", ".md", t, Some("textedit")).unwrap();
 
         let events = recent_at(&path, 5).unwrap();
         assert!(events.iter().all(|e| e.undone));
