@@ -405,22 +405,56 @@ pub fn set_dock_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// The `.app` bundle this binary runs from (`<bundle>/Contents/MacOS/<bin>`),
+/// or `None` for a bare binary such as `tauri dev`.
+fn app_bundle_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let bundle = exe.parent()?.parent()?.parent()?;
+    (bundle.extension()? == "app").then(|| bundle.to_path_buf())
+}
+
+/// Whether the user gave the bundle a custom icon. Finder's Get Info paste
+/// (and `NSWorkspace setIcon:forFile:`, which icon tools use) stores a
+/// folder's custom icon in an `Icon\r` file at its root; deleting the icon in
+/// Get Info removes it.
+fn has_custom_icon(bundle: &std::path::Path) -> bool {
+    bundle.join("Icon\r").exists()
+}
+
 /// Swap the Dock icon between the light and dark masters. macOS only
 /// re-renders bundle icons for the *system* appearance, so following the
 /// in-app Appearance setting has to happen at runtime. Driven by
 /// theme.ts whenever the resolved theme changes.
+///
+/// A custom icon pasted onto OpenWith.app wins: the swap used to replace it
+/// with the built-in masters on every launch (issue #25). Checked on every
+/// call, so an icon pasted while the app runs takes over at the next theme
+/// change, and one removed hands the Dock back to the masters.
 #[tauri::command]
 pub fn set_dock_icon_dark(app: AppHandle, dark: bool) -> Result<(), String> {
+    let custom_icon = app_bundle_path().filter(|b| has_custom_icon(b));
     app.run_on_main_thread(move || {
         use objc2::{AllocAnyThread, MainThreadMarker};
-        use objc2_app_kit::{NSApplication, NSImage};
-        use objc2_foundation::NSData;
+        use objc2_app_kit::{NSApplication, NSImage, NSWorkspace};
+        use objc2_foundation::{NSData, NSString};
 
         static LIGHT: &[u8] = include_bytes!("../icons/icon.png");
         static DARK: &[u8] = include_bytes!("../icons/icon-dark.png");
         let mtm = MainThreadMarker::new().expect("run_on_main_thread runs on main");
-        let data = NSData::with_bytes(if dark { DARK } else { LIGHT });
-        if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+        let image = match custom_icon {
+            // Finder's icon for the bundle, which is the custom one. Setting
+            // it (rather than leaving the Dock alone) also undoes a master we
+            // put up earlier in this session.
+            Some(bundle) => Some(
+                NSWorkspace::sharedWorkspace()
+                    .iconForFile(&NSString::from_str(&bundle.to_string_lossy())),
+            ),
+            None => {
+                let data = NSData::with_bytes(if dark { DARK } else { LIGHT });
+                NSImage::initWithData(NSImage::alloc(), &data)
+            }
+        };
+        if let Some(image) = image {
             unsafe {
                 NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
             }
@@ -766,4 +800,46 @@ pub fn import_toml(
         unchanged: result.unchanged.len(),
         skipped,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use objc2::AllocAnyThread;
+    use objc2_app_kit::{NSImage, NSWorkspace, NSWorkspaceIconCreationOptions};
+    use objc2_foundation::{NSData, NSString};
+
+    /// Sets and clears a custom icon through the API Finder's Get Info and
+    /// icon tools use, so CI's macOS runner checks the `Icon\r` assumption
+    /// behind `has_custom_icon` against the real system.
+    #[test]
+    fn custom_icon_detected_after_set_and_gone_after_clear() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("openwith-icon-test-{unique}"));
+        let bundle = root.join("OpenWith.app");
+        std::fs::create_dir_all(bundle.join("Contents")).unwrap();
+        let path = NSString::from_str(&bundle.to_string_lossy());
+        let workspace = NSWorkspace::sharedWorkspace();
+
+        assert!(!has_custom_icon(&bundle));
+
+        let data = NSData::with_bytes(include_bytes!("../icons/icon.png"));
+        let image = NSImage::initWithData(NSImage::alloc(), &data).unwrap();
+        assert!(workspace.setIcon_forFile_options(
+            Some(&image),
+            &path,
+            NSWorkspaceIconCreationOptions(0)
+        ));
+        assert!(has_custom_icon(&bundle));
+
+        assert!(workspace.setIcon_forFile_options(None, &path, NSWorkspaceIconCreationOptions(0)));
+        assert!(!has_custom_icon(&bundle));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
