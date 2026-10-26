@@ -2755,7 +2755,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openwith-cli"
-version = "0.6.5"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2771,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "openwith-core"
-version = "0.6.5"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.1",
@@ -2783,7 +2783,7 @@ dependencies = [
 
 [[package]]
 name = "openwith-gui"
-version = "0.6.5"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "objc2",
