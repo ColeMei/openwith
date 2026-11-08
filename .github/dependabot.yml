@@ -1,0 +1,31 @@
+# Monthly dependency PRs, one per ecosystem (updates grouped), so a
+# deprecation like the Node 20 Actions runtime arrives as a PR instead
+# of a CI warning.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: [maintenance]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    labels: [maintenance]
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /crates/openwith-gui
+    schedule:
+      interval: monthly
+    labels: [maintenance]
+    groups:
+      npm:
+        patterns: ["*"]
