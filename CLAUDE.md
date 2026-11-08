@@ -276,3 +276,5 @@ brew install --cask ColeMei/openwith/openwith-gui # GUI app
 ```
 
 Group bullets under CLI/TUI and GUI prefixes when a release touches both; drop the prefix when a release is single-surface.
+
+Credit an outside reporter on the bullet that fixes their issue: `(#N, thanks @user)`, adding what else they did if they helped beyond the report (e.g. `thanks @user for reporting and testing the fix`). Not for issues the maintainer filed.
