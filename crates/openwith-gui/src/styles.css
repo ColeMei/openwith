@@ -726,7 +726,12 @@ body {
   background: var(--accent-soft);
 }
 
+/* flex: none — .profiles-view is a flex column, and overflow: hidden drops a
+   flex item's automatic min-height to 0, so without it the column squeezes
+   the panels to fit (clipping their content) instead of overflowing and
+   letting the view scroll (issue #32). */
 .panel-block {
+  flex: none;
   margin-top: 12px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
@@ -805,6 +810,10 @@ body {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11.5px;
   line-height: 1.9;
+  /* Bounded like .history-body: a long import scrolls in place, keeping the
+     Apply button in view and the history panel within reach. */
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .preview-body .ok {
