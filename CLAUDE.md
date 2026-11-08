@@ -130,7 +130,8 @@ crates/
   ```bash
   gh pr merge <number> --squash --delete-branch
   ```
-- Do not use merge commits unless explicitly requested.
+- The repo only allows squash merges (merge commits and rebase merges are off in the settings), and merged branches are deleted automatically.
+- Label every issue and PR by type: `bug` (fixes), `enhancement` (features), `documentation` (docs), `maintenance` (chores, tests, CI, version bumps).
 - If a release tag has already been pushed, do not rewrite history just to linearize it.
 
 ### Versioning (SemVer-ish)
@@ -177,7 +178,7 @@ Cut a pre-release when a fix needs the reporter's confirmation before it ships, 
 3. Publish a release in the web UI: new tag `vX.Y.Z-rc.N` targeting **the PR branch**, title `vX.Y.Z-rc.N`, notes from the template below, **"Set as a pre-release"** ticked. Approve the `release` deployment. CI attaches the signed dmg and archive; `latest.yml` and `tap.yml` skip pre-releases, so `releases/latest` and Homebrew stay on stable. Check `gh api repos/ColeMei/openwith/releases/latest` still returns the last stable tag.
 4. For the smoke test, the checklist items that exercise the change are enough for an rc (run them against the CI-built .app); the **full** checklist is still mandatory before the final tag.
 5. Point the reporter at the release page in the issue.
-6. Once confirmed, merge the PR and cut `vX.Y.Z` from `main` with the normal release process. Leave the pre-release up.
+6. Once confirmed, merge the PR and cut `vX.Y.Z` from `main` with the normal release process. Once the stable release has shipped, delete the pre-release and its tag (`gh release delete vX.Y.Z-rc.N --cleanup-tag --yes`), along with any end-to-end updater test rcs. The rc link in the issue thread goes dead, which is fine: the stable release supersedes it.
 
 Users on the GUI's **Beta** update channel see pre-releases (Settings → Updates); Stable users don't. "Update to X…" on an rc opens its release page: the in-place installer only offers what `latest.json` carries, which is stable releases.
 
